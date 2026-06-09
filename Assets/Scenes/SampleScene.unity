@@ -667,7 +667,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 1967570333}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 6937075dd90e4b842b85258a522e9fa9, type: 3}
+  m_Script: {fileID: 11500000, guid: 885affbeee6ae8f4d9eafccc528fcffe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ModelGenerationServerTest_Voxel
   generateUrl: http://127.0.0.1:8000/generate
