@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0912">
+  <meta name="description" content="VR-Crafter explores an artistic 3D generation workflow in virtual reality: generate from an image, edit in space, and regenerate.">
+  <title>VR-Crafter: Artistic 3D Generation Workflow with Virtual Reality</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#overview">Skip to content</a>
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7l9-5Z M3 7l9 5 9-5 M12 12v10 M7.5 4.5l9 5"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7V5Z"/></symbol>
+    <symbol id="i-vr" viewBox="0 0 24 24"><path d="M4 6h16l2 11a2 2 0 0 1-2 2h-4l-4-4-4 4H4a2 2 0 0 1-2-2L4 6Z"/><path d="M6.5 11h.01M17.5 11h.01"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V5a2 2 0 0 1 4 0v7-9a2 2 0 0 1 4 0v9-5a2 2 0 0 1 4 0v9c0 4-3 6-7 6h-1c-3 0-4-1-6-4l-3-5a2 2 0 0 1 3-2l2 2Z"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 24 24"><path d="M20 8a8 8 0 0 0-14-3L3 8m0-5v5h5M4 16a8 8 0 0 0 14 3l3-3m0 5v-5h-5"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><rect x="2" y="5" width="14" height="14" rx="3"/><path d="m16 10 6-4v12l-6-4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+  </svg>
+
+  <header class="site-header container">
+    <a class="wordmark" href="#top" aria-label="VR-Crafter home">
+      <span class="brand-icon"><svg class="icon"><use href="#i-cube"/></svg></span>
+      <span>VR-Crafter<span class="brand-dot">.</span></span>
+    </a>
+    <div class="affiliations" aria-label="Universities">
+      <a href="https://www.berkeley.edu/" target="_blank" rel="noopener noreferrer" aria-label="UC Berkeley (opens in new tab)"><img class="berkeley-logo" src="assets/logos/berkeley.svg" width="225" height="42" alt="UC Berkeley"></a>
+      <a href="https://adelaideuni.edu.au/" target="_blank" rel="noopener noreferrer" aria-label="Adelaide University (opens in new tab)"><img class="adelaide-logo" src="assets/logos/adelaide-white.svg" width="800" height="191" alt="Adelaide University"></a>
+      <a href="https://www.unsw.edu.au/" target="_blank" rel="noopener noreferrer" aria-label="UNSW Sydney (opens in new tab)"><img class="unsw-logo" src="assets/logos/unsw.png" width="330" height="140" alt="UNSW Sydney"></a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero container" aria-labelledby="project-title">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="status-dot"></span> A NEW DIMENSION OF CREATION</div>
+        <h1 id="project-title"><span class="hero-name">VR-Crafter:</span><span class="hero-title">Artistic 3D Generation<br>Workflow with<br><span class="title-accent">Virtual Reality</span></span></h1>
+        <p class="hero-summary">Bring your imagination into space.<br>Generate, reach in, refine, and create again.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#prototype"><svg class="icon"><use href="#i-play"/></svg> Watch the prototype</a>
+          <a class="text-link" href="#overview">Explore the idea <svg class="icon"><use href="#i-arrow"/></svg></a>
+        </div>
+      </div>
+      <div class="hero-art" aria-label="Interactive illustration of a three-dimensional mesh">
+        <div class="art-grid" aria-hidden="true"></div>
+        <span class="art-coordinate coordinate-top">[ x, y, z ] <span>CREATIVE SPACE</span></span>
+        <canvas id="mesh-canvas" width="660" height="610" aria-label="An abstract purple 3D mesh. Drag to rotate, or use the arrow keys when focused." tabindex="0"></canvas>
+        <div class="art-tag tag-generate"><span class="mini-dot"></span> Generate</div>
+        <div class="art-tag tag-refine"><svg class="icon"><use href="#i-hand"/></svg> Shape in space</div>
+        <div class="art-coordinate coordinate-bottom"><span>FROM PIXELS TO PRESENCE</span><span class="drag-hint">↔ Drag to rotate</span></div>
+        <button id="motion-toggle" class="motion-toggle" type="button" aria-label="Pause mesh rotation" aria-pressed="false">Pause motion <span aria-hidden="true">Ⅱ</span></button>
+      </div>
+    </section>
+
+    <nav class="chapter-nav" aria-label="Page sections">
+      <div class="container chapter-inner">
+        <a class="active" href="#overview" aria-current="location"><span>01</span> The idea</a>
+        <a href="#desktop"><span>02</span> Beyond the screen</a>
+        <a href="#prototype"><span>03</span> The creative loop</a>
+        <a href="#perspectives"><span>04</span> Two perspectives</a>
+        <span class="nav-note"><span class="status-dot"></span> RESEARCH IN PROGRESS</span>
+      </div>
+    </nav>
+
+    <section class="section container" id="overview" aria-labelledby="overview-title">
+      <div class="section-heading overview-heading">
+        <div><div class="eyebrow section-kicker">01 / THE IDEA</div><h2 id="overview-title">3D creativity deserves<br><span class="muted-heading">a 3D workspace.</span></h2></div>
+        <div class="overview-copy"><p>Generative models can turn an image or a prompt into a 3D asset. Yet shaping that result often means working through a flat screen: mapping a 2D cursor to a 3D surface, switching views to judge depth, and rotating the camera to reach hidden geometry. Expressing a spatial idea becomes a sequence of indirect controls.</p><p><strong>VR-Crafter explores a more direct creative loop.</strong> With stereoscopic viewing and tracked controllers, artists can inspect an asset from different angles and place edits in the space it occupies. We aim to connect image-based generation, immersive AR/VR editing, and regeneration in one iterative workflow.</p></div>
+      </div>
+      <div class="principles">
+        <article class="principle"><div class="principle-icon"><svg class="icon"><use href="#i-vr"/></svg></div><span class="small-index">01</span><h3>See the whole shape</h3><p>Use depth cues and changing viewpoints to inspect proportion, volume, and occluded details.</p></article>
+        <article class="principle"><div class="principle-icon"><svg class="icon"><use href="#i-hand"/></svg></div><span class="small-index">02</span><h3>Make spatial edits</h3><p>Use tracked controllers to indicate where a change belongs directly around the 3D asset.</p></article>
+        <article class="principle"><div class="principle-icon"><svg class="icon"><use href="#i-loop"/></svg></div><span class="small-index">03</span><h3>Keep the idea evolving</h3><p>Feed structural changes back into generation, inspect the new result, and continue refining.</p></article>
+      </div>
+      <p class="research-note">Our research direction: investigate how immersive interaction can support control and expression in generative 3D workflows.</p>
+    </section>
+
+    <section class="section section-tinted" id="desktop" aria-labelledby="desktop-title">
+      <div class="container">
+        <div class="section-heading"><div><div class="eyebrow section-kicker">02 / BEYOND THE SCREEN</div><h2 id="desktop-title">A starting point.<br><span class="muted-heading">A new dimension to explore.</span></h2></div><p class="heading-description">Desktop interfaces already connect editable 3D structure with generative detail. ART-DECO offers a useful reference for imagining how that interaction could extend into VR.</p></div>
+        <article class="reference-feature">
+          <div class="reference-video"><video id="artdeco-video" controls autoplay muted loop playsinline preload="auto" poster="assets/posters/artdeco.jpg" aria-label="ART-DECO desktop interactive modeling demonstration"><source src="assets/artdeco/demo.mp4" type="video/mp4">Your browser does not support embedded video. <a href="assets/artdeco/demo.mp4">Download the ART-DECO demonstration.</a></video><div class="media-caption"><span><span class="status-dot"></span> DESKTOP INTERACTION</span><span>04:55 <span class="caption-divider">/</span> ART-DECO</span></div></div>
+          <div class="reference-copy"><span class="pill">RELATED WORK</span><h3>Structure in.<br> Detail out.</h3><p>ART-DECO turns a coarse voxel proxy into a detailed, textured shape guided by a text prompt. Its desktop demo shows how editing the proxy changes the generated result.</p><div class="mini-workflow"><span>Coarse shape</span><svg class="icon"><use href="#i-arrow"/></svg><span>Text guidance</span><svg class="icon"><use href="#i-arrow"/></svg><span>3D detail</span></div><a class="text-link" href="https://qiminchen.github.io/artdeco/" target="_blank" rel="noopener noreferrer">Visit the ART-DECO project <svg class="icon"><use href="#i-up-right"/></svg></a></div>
+        </article>
+        <div class="gallery">
+          <div class="gallery-toolbar"><div class="gallery-tabs" role="tablist" aria-label="ART-DECO examples"><button id="tab-shape" role="tab" aria-selected="true" aria-controls="panel-shape" tabindex="0">Shape &amp; style</button><button id="tab-results" role="tab" aria-selected="false" aria-controls="panel-results" tabindex="-1">Generation results</button><button id="tab-edits" role="tab" aria-selected="false" aria-controls="panel-edits" tabindex="-1">Local edits</button></div><span class="gallery-hint">A FEW POSSIBILITIES</span></div>
+          <figure id="panel-shape" role="tabpanel" aria-labelledby="tab-shape" tabindex="0"><button class="image-expand" data-image="assets/artdeco/representative_image.jpg" data-alt="ART-DECO shape and style examples, including chairs, architecture, animals, and furniture" aria-label="Enlarge shape and style examples"><img src="assets/artdeco/representative_image.jpg" width="4279" height="1894" alt="Coarse proxies and detailed ART-DECO generations across furniture, architecture, and animal styles" loading="lazy"><span class="expand-label"><svg class="icon"><use href="#i-expand"/></svg> View full image</span></button><figcaption><span>01 / Shape &amp; style</span> Coarse structures become detailed assets with different appearances.</figcaption></figure>
+          <figure id="panel-results" role="tabpanel" aria-labelledby="tab-results" tabindex="0" hidden><button class="image-expand" data-image="assets/artdeco/result_1.png" data-alt="ART-DECO text-guided generation results arranged by coarse input and text prompt" aria-label="Enlarge generation results"><img src="assets/artdeco/result_1.png" width="1660" height="1644" alt="ART-DECO generation results with input voxel structures on the left and style prompts across the top" loading="lazy"><span class="expand-label"><svg class="icon"><use href="#i-expand"/></svg> View full image</span></button><figcaption><span>02 / Generation results</span> Text guidance and input structure control the resulting geometry and style.</figcaption></figure>
+          <figure id="panel-edits" role="tabpanel" aria-labelledby="tab-edits" tabindex="0" hidden><button class="image-expand" data-image="assets/artdeco/procedural_editing.png" data-alt="ART-DECO procedural editing sequence showing local chair modifications and detailed outputs" aria-label="Enlarge local editing examples"><img src="assets/artdeco/procedural_editing.png" width="2136" height="642" alt="A sequence of local chair edits and their corresponding ART-DECO detailed results" loading="lazy"><span class="expand-label"><svg class="icon"><use href="#i-expand"/></svg> View full image</span></button><figcaption><span>03 / Local edits</span> Changes to the coarse proxy carry through to the detailed chair.</figcaption></figure>
+        </div>
+        <p class="source-note">Video and example figures: <a href="https://qiminchen.github.io/artdeco/" target="_blank" rel="noopener noreferrer">ART-DECO: Arbitrary Text Guidance for 3D Detailizer Construction</a>, Qimin Chen et al., SIGGRAPH Asia 2025. Presented here as related work; credit belongs to the original authors.</p>
+        <div class="section-bridge"><span class="bridge-line"></span><svg class="icon"><use href="#i-vr"/></svg><p>What if we could reach into this workflow?</p><span class="bridge-line"></span></div>
+      </div>
+    </section>
+
+    <section class="section container" id="prototype" aria-labelledby="prototype-title">
+      <div class="section-heading"><div><div class="eyebrow section-kicker">03 / THE CREATIVE LOOP</div><h2 id="prototype-title">From an image.<br><span class="muted-heading">Into your hands.</span></h2></div><div class="heading-description"><span class="pill"><span class="status-dot"></span> EARLY PROTOTYPE</span><p>Our initial implementation explores a simple loop: generate a 3D model from an image, modify it through AR/VR interaction, then generate a new model from the revised structure.</p></div></div>
+      <div class="prototype-layout">
+        <figure class="video-card"><div class="video-topline"><span><svg class="icon"><use href="#i-cube"/></svg> IMAGE → 3D → VR</span><span>PROTOTYPE 01</span></div><video id="prototype-video" controls autoplay muted loop playsinline preload="auto" poster="assets/posters/img-3d-vr.jpg" aria-label="Early VR-Crafter image-to-3D and immersive editing prototype"><source src="video/img-3d-vr.mp4" type="video/mp4">Your browser does not support embedded video. <a href="video/img-3d-vr.mp4">Download the prototype video.</a></video><figcaption><div><strong>A first pass at an immersive creative loop</strong><p>Early implementation footage in the development environment.</p></div><span class="duration">00:57</span></figcaption></figure>
+        <div class="loop-panel"><div class="loop-header"><span>THE WORKFLOW</span><svg class="icon"><use href="#i-loop"/></svg></div><ol class="loop-steps"><li><span class="step-icon"><svg class="icon"><use href="#i-image"/></svg></span><div><span class="step-count">01 / IMAGINE</span><h3>Start with an image</h3><p>An image sets the creative direction.</p></div></li><li><span class="step-icon"><svg class="icon"><use href="#i-cube"/></svg></span><div><span class="step-count">02 / GENERATE</span><h3>Bring it into 3D</h3><p>Create an initial model to work with.</p></div></li><li><span class="step-icon"><svg class="icon"><use href="#i-vr"/></svg></span><div><span class="step-count">03 / INTERACT</span><h3>Shape it in AR / VR</h3><p>Inspect and modify the spatial structure.</p></div></li><li><span class="step-icon"><svg class="icon"><use href="#i-loop"/></svg></span><div><span class="step-count">04 / REGENERATE</span><h3>Make the next version</h3><p>Generate again from the revised input.</p></div></li></ol><div class="loop-return"><svg class="icon"><use href="#i-loop"/></svg> Re-enter the scene. Keep creating.</div></div>
+      </div>
+    </section>
+
+    <section class="section section-tinted" id="perspectives" aria-labelledby="perspectives-title">
+      <div class="container">
+        <div class="section-heading"><div><div class="eyebrow section-kicker">04 / TWO PERSPECTIVES</div><h2 id="perspectives-title">See the gesture.<br><span class="muted-heading">See what it changes.</span></h2></div><p class="heading-description">The project video will pair a third-person camera with the view inside the headset. Together, the two perspectives connect an artist’s physical actions to changes in the virtual asset.</p></div>
+        <div class="perspectives-grid">
+          <article class="capture-plan"><div class="view-label"><span><svg class="icon"><use href="#i-camera"/></svg> VIEW 01</span><span class="pill">PLANNED SHOT</span></div><div class="operator-illustration" role="img" aria-label="Shot-planning illustration of a person wearing a VR headset and holding two controllers"><svg viewBox="0 0 420 260" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="operator-gradient" x1="145" y1="50" x2="285" y2="260" gradientUnits="userSpaceOnUse"><stop stop-color="#c1a2ff"/><stop offset="1" stop-color="#6c4ac8"/></linearGradient></defs><ellipse cx="211" cy="241" rx="121" ry="12" stroke="#8970bd" stroke-opacity=".2"/><path d="M40 60V37h23m294 0h23v23M40 208v22h23m294 0h23v-22" stroke="#9172c9" stroke-opacity=".5"/><path d="M159 240v-57l-12 20c-7 11-20 14-30 8l-30-29m67-22 13-24c5-8 12-12 22-14m40 0c12 2 20 8 25 18l23 38 29-30m-65 12 16 41c7 11 20 13 29 4l37-39M173 241l2-54m69 54-3-60" stroke="url(#operator-gradient)" stroke-width="3" stroke-linecap="round"/><path d="M186 119v13c12 11 25 11 36 0v-16m-42-33c-1 23 8 42 26 42 13 0 21-9 26-24m-52-27c0-23 10-34 28-34 17 0 29 13 29 31" stroke="url(#operator-gradient)" stroke-width="3"/><path d="m173 75 55-7 10 10-3 21-55 6-9-10 2-20Z" fill="#21172f" stroke="#c7a3ff" stroke-width="2.5"/><path d="m182 82 43-5m-37 16 17-2" stroke="#8d5ed7" stroke-width="2" stroke-linecap="round"/><path d="m228 69 13 5-3 18-4 7m-148 74-8-8m235-18 6-12" stroke="#c7a3ff" stroke-width="3"/><ellipse cx="74" cy="159" rx="13" ry="18" transform="rotate(-37 74 159)" stroke="#ba90fb" stroke-width="2.5"/><ellipse cx="324" cy="127" rx="13" ry="18" transform="rotate(25 324 127)" stroke="#ba90fb" stroke-width="2.5"/><path d="M89 154 142 98m168 26-49-23" stroke="#9e78e0" stroke-opacity=".5" stroke-dasharray="4 6"/><circle cx="144" cy="96" r="3" fill="#b895f4"/><circle cx="258" cy="99" r="3" fill="#b895f4"/></svg></div><div class="capture-copy"><h3>The artist in the room</h3><p>Frame the headset, both controllers, and upper-body movement so viewers can follow the gesture.</p><span class="planned-note">Third-person footage to be recorded</span></div></article>
+          <figure class="headset-view"><div class="view-label"><span><svg class="icon"><use href="#i-vr"/></svg> VIEW 02</span><span class="pill pill-live"><span class="status-dot"></span> CURRENT CAPTURE</span></div><video id="headset-video" controls autoplay muted loop playsinline preload="auto" poster="assets/posters/vr-demo.jpg" aria-label="Headset perspective showing controller interaction with a 3D architectural asset"><source src="video/vr-demo.mp4" type="video/mp4">Your browser does not support embedded video. <a href="video/vr-demo.mp4">Download the headset demonstration.</a></video><figcaption><div><h3>The world inside the headset</h3><p>See the controller rays, the selected region, and the asset’s response from the artist’s perspective.</p></div><span class="duration">00:59</span></figcaption></figure>
+        </div>
+        <div class="capture-strip"><div><svg class="icon"><use href="#i-camera"/></svg><span>Physical action</span></div><span class="sync-line"></span><span class="sync-label"><svg class="icon"><use href="#i-loop"/></svg> ONE SYNCHRONIZED STORY</span><span class="sync-line"></span><div><svg class="icon"><use href="#i-vr"/></svg><span>Virtual response</span></div></div>
+        <div class="shot-notes"><div><span>01</span><p><strong>Capture together</strong>Record the external camera and headset view during the same interaction.</p></div><div><span>02</span><p><strong>Match the moment</strong>Use a visible controller gesture as a shared timing cue when editing.</p></div><div><span>03</span><p><strong>Show cause &amp; effect</strong>Pair the gesture with selection, editing, and the regenerated result.</p></div></div>
+      </div>
+    </section>
+
+    <section class="closing container"><div class="closing-mark"><svg class="icon"><use href="#i-cube"/></svg></div><p>Imagine it. Step inside. <span>Make it yours.</span></p><a class="text-link" href="#top">Back to the top <span aria-hidden="true">↑</span></a></section>
+  </main>
+  <footer class="site-footer container"><a class="footer-brand" href="#top">VR-Crafter.</a><span>Artistic 3D generation, through a spatial lens.</span><span class="footer-status"><span class="status-dot"></span> An evolving research project</span></footer>
+
+  <dialog class="image-dialog" aria-label="Full-resolution ART-DECO example"><div class="dialog-toolbar"><p id="dialog-caption">ART-DECO example</p><button class="dialog-close" aria-label="Close image"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="dialog-image-wrap"><img id="dialog-image" alt=""></div><a href="https://qiminchen.github.io/artdeco/" target="_blank" rel="noopener noreferrer">Source: ART-DECO · Qimin Chen et al. ↗</a></dialog>
+</body>
+</html>
