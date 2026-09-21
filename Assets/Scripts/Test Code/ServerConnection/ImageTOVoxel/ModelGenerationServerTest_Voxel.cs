@@ -34,7 +34,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     [SerializeField] private Texture2D imageToUpload;
     [SerializeField] private OutputMode outputMode = OutputMode.Voxels;
     [SerializeField, Min(1)] private int maxVoxels = 12000;
-    [SerializeField] private bool autoRunOnPlay = true;
+    [SerializeField] private bool autoRunOnPlay = false;
+    [SerializeField, Min(1)] private int requestTimeoutSeconds = 180;
 
     [Header("GLB Model Output")]
     [SerializeField] private Transform modelParent;
@@ -59,11 +60,39 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     private GameObject modelRoot;
     private GameObject voxelRoot;
     private bool isRunning;
-    private bool xrGrabWarningShown;
+    private UnityWebRequest activeRequest;
+    public bool IsRunning => isRunning;
+    public int GeneratedVoxelCount { get; private set; }
+    public int VoxelDrawBatchCount => voxelBatch != null ? voxelBatch.ChunkCount : 0;
+    public string StatusMessage { get; private set; } = "Ready. Select Get 3D Model.";
     private int currentGridSize = 64;
     private float appliedVoxelSize = -1f;
+    private QuestVoxelBatchRenderer voxelBatch;
 
     private readonly Dictionary<string, Material> materialCache = new Dictionary<string, Material>();
+
+    public void SetOutputParent(Transform parent)
+    {
+        modelParent = voxelParent = parent;
+        modelPosition = voxelRootPosition = Vector3.zero;
+    }
+
+    private void OnDisable()
+    {
+        if (activeRequest != null) activeRequest.Abort();
+        StopAllCoroutines();
+        if (activeRequest != null) activeRequest.Dispose();
+        activeRequest = null;
+        if (isRunning) StatusMessage = "Generation cancelled. Select Get 3D Model to retry.";
+        isRunning = false;
+    }
+
+    private void OnDestroy()
+    {
+        ClearGeneratedObjects();
+        foreach (Material material in materialCache.Values) DestroyGeneratedObject(material);
+        materialCache.Clear();
+    }
 
     [System.Serializable]
     private class ServerResponse
@@ -130,11 +159,57 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
         if (imageToUpload == null)
         {
+            StatusMessage = "No input image. Assign Image To Upload on Server.";
             Debug.LogError("[ModelGenerationServerTest] Assign an image in the Inspector.");
             return;
         }
 
-        StartCoroutine(GenerateRoutine());
+        StartCoroutine(RunGenerationSafely());
+    }
+
+    // Traverse nested enumerators so an exception in download, parsing or object creation
+    // always restores the button and disposes the request. Yield instructions still run in Unity.
+    private IEnumerator RunGenerationSafely()
+    {
+        isRunning = true;
+        var routines = new Stack<IEnumerator>();
+        routines.Push(GenerateRoutine());
+        try
+        {
+            while (routines.Count > 0)
+            {
+                IEnumerator routine = routines.Peek();
+                bool more = false;
+                object current = null;
+                System.Exception failure = null;
+                try
+                {
+                    more = routine.MoveNext();
+                    if (more) current = routine.Current;
+                }
+                catch (System.Exception exception) { failure = exception; }
+                if (failure != null)
+                {
+                    StatusMessage = "Generation failed. Check Console and retry.";
+                    Debug.LogException(failure, this);
+                    yield break;
+                }
+                if (!more)
+                {
+                    (routines.Pop() as System.IDisposable)?.Dispose();
+                    continue;
+                }
+                if (current is IEnumerator nested) routines.Push(nested);
+                else yield return current;
+            }
+        }
+        finally
+        {
+            while (routines.Count > 0) (routines.Pop() as System.IDisposable)?.Dispose();
+            if (activeRequest != null) activeRequest.Dispose();
+            activeRequest = null;
+            isRunning = false;
+        }
     }
 
     [ContextMenu("Clear Generated Objects")]
@@ -144,19 +219,21 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         DestroyGeneratedObject(voxelRoot);
         modelRoot = null;
         voxelRoot = null;
+        voxelBatch = null;
         appliedVoxelSize = -1f;
+        GeneratedVoxelCount = 0;
     }
 
     private IEnumerator GenerateRoutine()
     {
-        isRunning = true;
+        StatusMessage = "Preparing image...";
         Debug.Log("[ModelGenerationServerTest] Encoding image...");
 
         byte[] imageBytes = EncodeTextureToPng(imageToUpload);
         if (imageBytes == null || imageBytes.Length == 0)
         {
             Debug.LogError("[ModelGenerationServerTest] Failed to encode image.");
-            isRunning = false;
+            StatusMessage = "Could not read the input image. Check Console.";
             yield break;
         }
 
@@ -169,14 +246,17 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
         Debug.Log("[ModelGenerationServerTest] Uploading image to: " + generateUrl);
 
-        using UnityWebRequest request = UnityWebRequest.Post(generateUrl, form);
+        StatusMessage = "Generating model. Please wait...";
+        UnityWebRequest request = UnityWebRequest.Post(generateUrl, form);
+        activeRequest = request;
+        request.timeout = requestTimeoutSeconds;
         yield return request.SendWebRequest();
 
         if (request.result != UnityWebRequest.Result.Success)
         {
             Debug.LogError("[ModelGenerationServerTest] Upload failed: " + request.error);
             Debug.LogError(request.downloadHandler.text);
-            isRunning = false;
+            StatusMessage = "Cannot reach generation server. Start the Python server and retry.";
             yield break;
         }
 
@@ -185,7 +265,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         {
             Debug.LogError("[ModelGenerationServerTest] Invalid server response:");
             Debug.LogError(request.downloadHandler.text);
-            isRunning = false;
+            StatusMessage = "Invalid server response. Check Console and retry.";
             yield break;
         }
 
@@ -210,10 +290,10 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             else
             {
                 Debug.LogWarning("[ModelGenerationServerTest] No voxel data returned.");
+                StatusMessage = "Server returned no voxels. Check the server output mode.";
             }
         }
 
-        isRunning = false;
     }
 
     private bool ShouldLoadModel()
@@ -285,7 +365,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             yield return null;
         }
 
-        if (!loadTask.Result)
+        if (loadTask.IsFaulted || loadTask.IsCanceled || !loadTask.Result)
         {
             Debug.LogError("[ModelGenerationServerTest] Failed to load GLB: " + modelUrl);
             DestroyGeneratedObject(modelRoot);
@@ -299,7 +379,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             yield return null;
         }
 
-        if (!instantiateTask.Result)
+        if (instantiateTask.IsFaulted || instantiateTask.IsCanceled || !instantiateTask.Result)
         {
             Debug.LogError("[ModelGenerationServerTest] Failed to instantiate GLB.");
             DestroyGeneratedObject(modelRoot);
@@ -308,6 +388,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         }
 
         Debug.Log("[ModelGenerationServerTest] GLB model loaded.");
+        StatusMessage = "GLB model loaded.";
     }
 
     private IEnumerator BuildVoxelsRoutine(ServerResponse response)
@@ -317,36 +398,61 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         currentGridSize = response.grid_size > 0 ? response.grid_size : 64;
         voxelRoot = new GameObject("Generated_Voxels");
         PlaceRoot(voxelRoot, voxelParent, voxelRootPosition, voxelRootScale);
+        // Each newly created voxel already gets this size. Avoid walking all
+        // previously created voxels on every frame while the coroutine builds.
+        appliedVoxelSize = voxelSize;
+        voxelBatch = null;
+        if (voxelPrefab == null && voxelShape == PrimitiveType.Cube)
+        {
+            voxelBatch = voxelRoot.AddComponent<QuestVoxelBatchRenderer>();
+            voxelBatch.Initialize();
+        }
+        GeneratedVoxelCount = 0;
+        int count = Mathf.Min(response.voxels.Length, maxVoxels);
+        var slice = System.Diagnostics.Stopwatch.StartNew();
 
-        for (int i = 0; i < response.voxels.Length; i++)
+        for (int i = 0; i < count; i++)
         {
             VoxelData voxel = response.voxels[i];
+            if (voxel == null) continue;
             GameObject voxelObject = CreateVoxelObject(voxel);
             voxelObject.transform.SetParent(voxelRoot.transform, false);
 
             GeneratedVoxel generatedVoxel = voxelObject.AddComponent<GeneratedVoxel>();
             generatedVoxel.Initialize(voxel.x, voxel.y, voxel.z, voxel.type, currentGridSize, voxelSize, voxelRoot.transform);
             ApplyVoxelTransform(generatedVoxel);
+            if (voxelBatch != null)
+            {
+                Color color = Color.white;
+                if (!string.IsNullOrEmpty(voxel.color)) ColorUtility.TryParseHtmlString(voxel.color, out color);
+                voxelBatch.Add(generatedVoxel, color);
+            }
 
             if (makeVoxelsGrabbableForXR)
             {
                 MakeVoxelGrabbable(voxelObject);
             }
+            GeneratedVoxelCount++;
 
             // Avoid freezing the Unity Editor when many voxels are created.
-            if (i % 500 == 0)
+            if (slice.Elapsed.TotalMilliseconds >= 3 || i % 128 == 127)
             {
+                if (voxelBatch != null) voxelBatch.FlushDirty();
+                StatusMessage = $"Building voxels: {GeneratedVoxelCount} / {count}";
                 yield return null;
+                slice.Restart();
             }
         }
 
+        if (voxelBatch != null) voxelBatch.FlushDirty();
         appliedVoxelSize = voxelSize;
-        Debug.Log("[ModelGenerationServerTest] Voxels generated: " + response.voxels.Length);
+        Debug.Log("[ModelGenerationServerTest] Voxels generated: " + GeneratedVoxelCount);
+        StatusMessage = $"{GeneratedVoxelCount:N0} voxels ready. Hold Trigger to drag one.";
     }
 
     private GameObject CreateVoxelObject(VoxelData voxel)
     {
-        GameObject obj = voxelPrefab != null
+        GameObject obj = voxelBatch != null ? new GameObject() : voxelPrefab != null
             ? Instantiate(voxelPrefab)
             : GameObject.CreatePrimitive(voxelShape);
 
@@ -355,6 +461,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         foreach (Renderer renderer in obj.GetComponentsInChildren<Renderer>())
         {
             renderer.sharedMaterial = GetMaterial(voxel.color);
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
         }
 
         if (obj.GetComponentInChildren<Collider>() == null)
@@ -394,6 +502,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         );
 
         voxel.transform.localScale = Vector3.one * voxelSize;
+        voxel.NotifyRenderChanged();
     }
 
     private Material GetMaterial(string htmlColor)
@@ -408,11 +517,13 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             return cachedMaterial;
         }
 
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        Shader shader = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null
+            ? Shader.Find("Universal Render Pipeline/Lit") : Shader.Find("Standard");
         if (shader == null) shader = Shader.Find("Standard");
         if (shader == null) shader = Shader.Find("Unlit/Color");
 
         Material material = new Material(shader);
+        material.enableInstancing = true;
 
         if (ColorUtility.TryParseHtmlString(htmlColor, out Color color))
         {
@@ -430,38 +541,15 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             voxelObject.AddComponent<BoxCollider>();
         }
 
+        // Transform dragging avoids thousands of unnecessary Rigidbody simulations.
         Rigidbody body = voxelObject.GetComponent<Rigidbody>();
-        if (body == null)
+        if (body != null)
         {
-            body = voxelObject.AddComponent<Rigidbody>();
+            body.useGravity = false;
+            body.isKinematic = true;
         }
-
-        body.useGravity = false;
-        body.isKinematic = true;
-
-        // Reflection keeps this script compilable even when XR Interaction Toolkit is not installed.
-        System.Type grabType =
-            System.Type.GetType("UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable, Unity.XR.Interaction.Toolkit") ??
-            System.Type.GetType("UnityEngine.XR.Interaction.Toolkit.XRGrabInteractable, Unity.XR.Interaction.Toolkit");
-
-        if (grabType == null)
-        {
-            if (!xrGrabWarningShown)
-            {
-                Debug.LogWarning(
-                    "[ModelGenerationServerTest] XRGrabInteractable was not found. " +
-                    "Install XR Interaction Toolkit or use a voxel prefab with your own Quest/Meta grab component."
-                );
-                xrGrabWarningShown = true;
-            }
-
-            return;
-        }
-
-        if (voxelObject.GetComponent(grabType) == null)
-        {
-            voxelObject.AddComponent(grabType);
-        }
+        if (voxelObject.GetComponent<QuestVoxelDraggable>() == null)
+            voxelObject.AddComponent<QuestVoxelDraggable>();
     }
 
     private void PlaceRoot(GameObject root, Transform parent, Vector3 position, Vector3 scale)
@@ -479,7 +567,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         root.transform.localScale = scale;
     }
 
-    private void DestroyGeneratedObject(GameObject obj)
+    private void DestroyGeneratedObject(UnityEngine.Object obj)
     {
         if (obj == null)
         {
@@ -503,6 +591,21 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 /// </summary>
 public class GeneratedVoxel : MonoBehaviour
 {
+    private QuestVoxelBatchRenderer renderBatch;
+    private int renderChunk = -1;
+    public bool HasRenderBatch => renderBatch != null;
+    public bool IsRayHighlighted { get; private set; }
+    public void SetRayHighlight(bool value)
+    {
+        if (IsRayHighlighted == value) return;
+        IsRayHighlighted = value;
+        if (renderBatch != null) renderBatch.MarkColorsDirty(renderChunk);
+    }
+    public void SetRenderBatch(QuestVoxelBatchRenderer batch, int chunk) { renderBatch = batch; renderChunk = chunk; }
+    public void NotifyRenderChanged() { if (renderBatch != null) renderBatch.MarkDirty(renderChunk); }
+    private void OnEnable() => NotifyRenderChanged();
+    private void OnDisable() => NotifyRenderChanged();
+    private void OnDestroy() => NotifyRenderChanged();
     public int x;
     public int y;
     public int z;

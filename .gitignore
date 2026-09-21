@@ -15,6 +15,10 @@
 /[Uu]ser[Ss]ettings/
 *.log
 
+# Unity crash/recovery artifacts
+/Assets/_Recovery/
+/Assets/_Recovery.meta
+
 # By default unity supports Blender asset imports, *.blend1 blender files do not need to be commited to version control.
 *.blend1
 *.blend1.meta
@@ -69,6 +73,15 @@ sysinfo.txt
 
 # Mono auto generated files
 mono_crash.*
+
+# Python backend environments, caches, secrets, and runtime uploads
+/backend/.venv/
+/backend/venv/
+/backend/**/__pycache__/
+/backend/.pytest_cache/
+/backend/.env
+/backend/data/received_images/*
+!/backend/data/received_images/.gitkeep
 
 # Builds
 *.apk

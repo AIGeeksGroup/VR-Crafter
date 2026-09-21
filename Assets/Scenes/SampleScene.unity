@@ -297,15 +297,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -0.01615
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalRotation.w
@@ -336,6 +336,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      propertyPath: _trackingOriginType
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: _enableDynamicResolution
       value: 1
       objectReference: {fileID: 0}
@@ -360,6 +364,17 @@ PrefabInstance:
       addedObject: {fileID: 2049769164}
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+--- !u!114 &1121489167 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 11400010, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+  m_PrefabInstance: {fileID: 1121489166}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: df9f338034892c44ebb62d97894772f1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!4 &1164228703 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 487254, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
@@ -618,6 +633,7 @@ GameObject:
   - component: {fileID: 1967570335}
   - component: {fileID: 1967570334}
   - component: {fileID: 1967570336}
+  - component: {fileID: 1967570337}
   m_Layer: 0
   m_Name: Server
   m_TagString: Untagged
@@ -672,19 +688,33 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ModelGenerationServerTest_Voxel
   generateUrl: http://127.0.0.1:8000/generate
   imageToUpload: {fileID: 2800000, guid: 70caa661c39fd0045a6bd874d279a1f1, type: 3}
-  outputMode: 1
+  outputMode: 2
   maxVoxels: 12000
-  autoRunOnPlay: 1
+  autoRunOnPlay: 0
+  requestTimeoutSeconds: 180
   modelParent: {fileID: 0}
   modelPosition: {x: 0, y: 0, z: 2}
   modelScale: {x: 1, y: 1, z: 1}
   voxelParent: {fileID: 0}
-  voxelRootPosition: {x: 0, y: 0, z: 0}
+  voxelRootPosition: {x: 0, y: 0.85, z: 1.15}
   voxelRootScale: {x: 1, y: 1, z: 1}
-  voxelShape: 3
-  voxelSize: 0.05
+  voxelShape: 0
+  voxelSize: 0.015
   voxelPrefab: {fileID: 0}
-  makeVoxelsGrabbableForXR: 0
+  makeVoxelsGrabbableForXR: 1
+--- !u!114 &1967570337
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1967570333}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b9595dced9daf124092ffeb76d06a1a1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::QuestProVoxelExperience
+  cameraRig: {fileID: 1121489167}
 --- !u!1 &2049769163
 GameObject:
   m_ObjectHideFlags: 0
