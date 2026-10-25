@@ -115,7 +115,7 @@ measured:
 
    `measure_trellis.py` prints voxel count, stage times, GLB size and peak VRAM
    per image. Use its numbers to choose `Max Voxels` and the Unity request
-   timeout.
+   timeout (600 s until then).
 
 ## API
 
@@ -133,12 +133,15 @@ measured:
    "voxels": [{"id": 0, "x": 53, "y": 30, "z": 43, "type": "occupied", "color": "#C8C8C8"}],
    "model_url": "http://<host>/generations/<id>/revisions/0/model.glb",
    "model_space": "trellis_unit_cube",
-   "revisions_url": "http://<host>/generations/<id>/revisions"}
+   "revisions_url": "http://<host>/generations/<id>/revisions",
+   "generation_url": "http://<host>/generations/<id>"}
   ```
 
   `voxels` appears only in `voxels`/`both`, and `model_url` only in
   `model`/`both`. If no GLB exists, `model_error` ("No GLB was produced.")
-  replaces `model_url`. URLs are built from the request's base URL.
+  replaces `model_url`. `model_space` is present only for `trellis2`. URLs are
+  built from the request's base URL; every success response has
+  `revisions_url` and `generation_url`.
 - `POST /generations/{generation_id}/revisions`: JSON body
 
   ```json
@@ -151,6 +154,12 @@ measured:
   id that is not listed counts as deleted, and `id: -1` is a new voxel. The
   response has the same shape as a `both` response with
   `revision = base_revision + 1`, and new voxels carry their assigned ids.
+- `GET /generations/{generation_id}`: the latest committed revision, in the
+  same shape as a revisions response (`response_mode` `both`). It is read-only
+  and does not wait for a running generation. Unity calls it when a submit is
+  answered with `Revision {base} is stale; latest is {latest}.`, which happens
+  when Unity timed out on a submit that the backend still committed; Unity then
+  rebuilds from that revision.
 - `GET /generations/{generation_id}/revisions/{revision}/model.glb`: the GLB of
   that revision (`model/gltf-binary`).
 - `GET /model`: the legacy endpoint; downloads the first available GLB in
@@ -158,16 +167,21 @@ measured:
 
 ### Errors
 
-Failures of `/generate` and `/revisions` return HTTP 200 with
-`{"status": "error", "error": "<message>"}`. Only a missing GLB returns HTTP
-404. Messages include: `Generator produced {n} voxels, above max_voxels={m}.
-Raise Max Voxels on the Unity Server component.`, `Generator produced no
-occupied voxels.`, `Uploaded file is not a readable image.`, `Generation
-failed: {exception}`, `Unknown generation {id}.`, `Revision {base} is stale;
-latest is {latest}.`, `Unknown voxel id {id}.`, `Duplicate voxel id {id}.`,
-`Voxel {id} is outside the 64^3 grid.`, `Voxel {id} has invalid color
-{color}.`, `Edited model has no voxels.` and `Edited model has {n} voxels,
-above max_voxels={m}.`
+Failures of `/generate`, `/revisions` and `GET /generations/{id}` return
+HTTP 200 with `{"status": "error", "error": "<message>"}`. Only a missing GLB
+returns HTTP 404. Messages include: `Invalid request: {field} {reason}` (a
+missing or mistyped field), `response_mode must be model, voxels, or both`,
+`Generator produced {n} voxels, above max_voxels={m}. Raise Max Voxels on the
+Unity Server component.`, `Generator produced no occupied voxels.`, `Uploaded
+file is not a readable image.`, `Generation failed: {exception}`, `Unknown
+generation {id}.` (also for a malformed id, or a generation whose revision 0
+is not finished), `Generation {id} was created by {source}; this server runs
+{generator}.` (revisions and the latest revision are served only by the
+generator that made the generation), `Revision {base} is stale; latest is
+{latest}.`, `Unknown voxel id {id}.`, `Duplicate voxel id {id}.`, `Voxel {id}
+is outside the 64^3 grid.`, `Voxel {id} has invalid color {color}.`, `Edited
+model has no voxels.` and `Edited model has {n} voxels, above
+max_voxels={m}.`
 
 ## Data
 

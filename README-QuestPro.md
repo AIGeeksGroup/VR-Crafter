@@ -9,8 +9,12 @@
 1. 打开电脑上的 Meta Quest Link / Meta Horizon Link，用 USB Link 或 Air Link 连接 Quest Pro，并在头显中进入 Quest Link。
 2. 在 Unity 打开上面的项目与 SampleScene，再点击 **Play**。
 3. 用任一手柄的射线指向身前面板的 **Get 3D Model**，按一下食指 **Trigger**。
-4. 等待体素模型和 GLB 一起出现，二者应当重叠。状态栏显示 `Revision 0`。
-5. 用下表的操作编辑体素，再点击 **Submit Edits**；后端返回新版本，GLB 与体素都按新版本重建，状态栏显示 `Revision {n}`。再次点击 Get 3D Model 会用新结果替换当前模型。
+4. 等待体素模型和 GLB 一起出现，状态栏显示 `Revision 0: {体素数} voxels ready.`。只有 `trellis2` 生成器的 GLB 与体素重叠；`fixture` 生成器显示的是与体素无关的演示 GLB，保持原始尺寸，不会重叠。
+5. 用下表的操作编辑体素，再点击 **Submit Edits**；后端返回新版本，GLB 与体素都按新版本重建，状态栏显示 `Revision {n}: {体素数} voxels ready.`。再次点击 Get 3D Model 会用新结果替换当前模型。
+
+GLB 加载失败时，状态栏末尾追加 `GLB failed to load; see Console.`，体素照常显示。
+
+请求超过 Request Timeout Seconds（默认 600 秒）时，状态栏显示 `Request timed out after 600 s; the server may still be working. Wait, then retry.`：后端可能仍在计算，提交的版本可能已经保存。稍等后再点一次 **Submit Edits**。如果后端已经保存了那次提交，它会回复 `Revision {n} is stale; latest is {m}.`，Unity 随即从后端载入最新版本并重建，状态栏显示 `Server already had revision {m}; loaded it. Re-apply edits made since then.`，超时之后做的编辑需要重新做。Get 3D Model 超时后再点会生成一个新的模型。连不上后端时仍显示 `Cannot reach generation server. Start the Python server and retry.`。
 
 请先进入 Quest Link，再点击 Play。如果已在没有头显连接的情况下进入 Play，请停止 Play，连接 Link 后再进入。
 
@@ -76,7 +80,7 @@ Linux 上用 `sudo ufw status` 确认 8000 端口没有被挡住。
 
 ## Inspector 设置
 
-菜单 **Configure VR Voxel Scene** 会把 `Server` 的 Output Mode 重置为 `Both`，把 Request Timeout Seconds 重置为 `180`。TRELLIS.2 的耗时尚未测量，实测之后请重新设置 Request Timeout Seconds（建议取实测最大值的 2 倍），并按需要调整 `Max Voxels`。每次运行 Configure 之后都要检查这两项。
+菜单 **Configure VR Voxel Scene** 会把 `Server` 的 Output Mode 重置为 `Both`，把 Request Timeout Seconds 重置为 `600`。TRELLIS.2 的耗时尚未测量，实测之后请重新设置 Request Timeout Seconds（建议取实测最大值的 2 倍），并按需要调整 `Max Voxels`。每次运行 Configure 之后都要检查这两项。
 
 ## 验证与限制
 
@@ -101,15 +105,15 @@ Linux 上用 `sudo ufw status` 确认 8000 端口没有被挡住。
 
 - 每个报告只含 `PASS:` 行，每条命令退出码为 0。
 - `input.txt` 增加 4 行 `Grip and A/X read correctly for …`。
-- `editor.txt` 有 30 行 PASS，最后一行是 `Voxels of a model without an editor (still building) are not free-dragged`。
-- `play.txt` 仍以 `Out-of-grid voxels are removed on submit: …` 结尾。
+- `editor.txt` 有 32 行 PASS，最后一行是 `Submit Edits waits for the finished build's own editor`。
+- `play.txt` 有 34 行 PASS，以 `The reloaded model submits as revision 3: Revision 3: …` 结尾；倒数第三行是 `A stale submit reloads the server's latest revision: Server already had revision 2; loaded it. …`。
 - 失败时把 `Logs\*.log` 和报告文件一并保留。
 
 ## 头显中还需确认
 
-- GLB 和体素重叠，不是镜像；模型正面朝向用户（如果不是，需整体绕 Y 轴旋转映射和 GLB 根节点，见 [backend/UNITY_INTEGRATION.md](backend/UNITY_INTEGRATION.md)）。
+- 使用 `trellis2` 时 GLB 和体素重叠，不是镜像；模型正面朝向用户（如果不是，需整体绕 Y 轴旋转映射和 GLB 根节点，见 [backend/UNITY_INTEGRATION.md](backend/UNITY_INTEGRATION.md)）。
 - Grip 刷选和 A/X 清空正常；四种模式的射线颜色和按钮高亮正确；Add 的预览方块与实际落点一致。
-- Submit Edits 之后 GLB 更新，状态栏显示 `Revision n`。
+- Submit Edits 之后 GLB 更新，状态栏显示 `Revision n: … voxels ready.`。
 - 把 `Max Voxels` 调小，确认超限提示能显示。
 - 大选区连续 Fill 和 Erase 约 20 秒，查看 `Library/QuestProInputDiagnostics.log` 中的平均帧时间和最大帧时间。
 

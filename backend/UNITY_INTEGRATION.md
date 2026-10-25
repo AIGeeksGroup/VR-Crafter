@@ -9,15 +9,25 @@
    `response_mode=both`.
 3. One response carries the `generation_id`, `revision` 0, the voxels (each with
    a stable `id`) and the `model_url` of that revision's GLB.
-4. Unity builds the voxel object and loads the GLB with glTFast, scaled and
-   offset to overlap the voxels.
+4. Unity builds the voxel object and loads the GLB with glTFast. A `trellis2`
+   GLB is scaled and offset to overlap the voxels; the fixture's demo GLB is
+   unrelated to the voxels and keeps its own scale.
 5. The user edits in VR: Grip selects voxels, then Move, Fill, Erase or Add
    (controls in [../README-QuestPro.md](../README-QuestPro.md)).
 6. **Submit Edits** posts the complete voxel list to
    `POST /generations/{generation_id}/revisions` with the `base_revision`.
 7. The backend answers with the next revision: new voxels with assigned ids and
    a new `model_url`. Unity rebuilds both from the response and the status bar
-   shows `Revision {n}`.
+   shows `Revision {n}: {count} voxels ready.`
+
+A request that runs longer than `Request Timeout Seconds` (600 s by default)
+shows `Request timed out after 600 s; the server may still be working. Wait,
+then retry.` The backend keeps working and may still commit a submitted
+revision. Pressing Submit Edits again then gets `Revision {n} is stale; latest
+is {m}.`; Unity answers it by loading `generation_url`
+(`GET /generations/{generation_id}`), rebuilds from revision `m` and shows
+`Server already had revision {m}; loaded it. Re-apply edits made since then.`
+Any other error response leaves the voxels and GLB as they are.
 
 With `VRCRAFTER_GENERATOR=fixture` (the default) the backend ignores the image
 and returns a deterministic voxel house and the bundled GLB, so the loop can be
@@ -80,4 +90,5 @@ Still unverified (none of this has been run):
   the user, in the headset. The alignment assumes glTFast flips the X axis on
   import. If the front is wrong, rotate the mapping and the GLB root together
   around Y (never flip a single axis, which mirrors the shape).
-- `Max Voxels` and `Request Timeout Seconds` are not tuned for TRELLIS.2.
+- `Max Voxels` and `Request Timeout Seconds` (600 s) are not tuned for
+  TRELLIS.2.
