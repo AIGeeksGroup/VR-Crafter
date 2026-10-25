@@ -85,10 +85,13 @@ public sealed class QuestVoxelBatchRenderer : MonoBehaviour
         if (index >= 0 && index < chunks.Count) chunks[index].colorsDirty = true;
     }
 
+    // Hover beats selection, which beats the voxel's own color.
     private static Color DisplayColor(Chunk chunk, int index)
     {
-        if (chunk.data[index] == null || !chunk.data[index].IsRayHighlighted) return chunk.colors[index];
-        return QualitySettings.activeColorSpace == ColorSpace.Linear ? QuestVoxelDraggable.HoverColor.linear : QuestVoxelDraggable.HoverColor;
+        var voxel = chunk.data[index];
+        if (voxel == null || !voxel.IsRayHighlighted && !voxel.IsSelected) return chunk.colors[index];
+        Color color = voxel.IsRayHighlighted ? QuestVoxelDraggable.HoverColor : QuestVoxelEditor.SelectedColor;
+        return QualitySettings.activeColorSpace == ColorSpace.Linear ? color.linear : color;
     }
 
     // Called after each generation slice as well, so edit-mode validation uses the

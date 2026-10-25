@@ -14,8 +14,14 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
     private QuestVoxelDraggable held;
     private QuestRayButton hoveredButton;
     private QuestVoxelDraggable hoveredVoxel;
+    private QuestVoxelEditor editor;
+    private QuestVoxelDraggable editTarget;
+    private QuestVoxelEditMode editMode;
+    private bool editing;
     private bool pressed;
     private bool armed;
+    private bool gripHeld;
+    private bool primaryPressed;
     private bool recenterPressed;
     private InputDevice inputDevice;
     private bool inputFocus = true;
@@ -25,6 +31,8 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
     public float TriggerValue { get; private set; }
     public Vector2 JoystickValue { get; private set; }
     public event System.Action RecenterRequested;
+    // Ray colors while dragging or placing, indexed by QuestVoxelEditMode; Move keeps the original drag orange.
+    private static readonly Color[] ModeColors = { new(1f, 0.75f, 0.1f), new(0.3f, 1f, 0.4f), new(1f, 0.3f, 0.3f), new(0.55f, 0.45f, 1f) };
 
     public void Initialize(OVRInput.Controller hand) => controller = hand;
 
@@ -79,7 +87,20 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
             if (state.recenter && !recenterPressed) RecenterRequested?.Invoke();
         }
         recenterPressed = tracked && state.recenter;
+        ProcessSelectionInput(tracked, state.grip, state.primary);
         ProcessInput(tracked, TriggerValue);
+    }
+
+    // Grip uses the Trigger thresholds and adds ray-hit voxels to the shared selection; A/X clears it once per press.
+    private void ProcessSelectionInput(bool tracked, float grip, bool primary)
+    {
+        var active = QuestVoxelEditor.Active;
+        gripHeld = tracked && grip >= (gripHeld ? 0.45f : 0.65f);
+        if (tracked && primary && !primaryPressed && active != null) active.ClearSelection();
+        primaryPressed = tracked && primary;
+        if (gripHeld && active != null && Physics.Raycast(transform.position, transform.forward, out RaycastHit hit,
+            rayDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
+            active.Select(hit.collider.GetComponentInParent<GeneratedVoxel>());
     }
 
     private void ProcessInput(bool tracked, float trigger)
@@ -90,6 +111,9 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
             return;
         }
 
+        var active = QuestVoxelEditor.Active;
+        // A rebuilt model replaces the editor; treat that like releasing the Trigger.
+        if (editing && (editor == null || editor != active)) EndEdit();
         // A release is required after tracking/focus returns to avoid accidental grabbing.
         if (trigger <= 0.45f) armed = true;
         bool down = armed && trigger >= (pressed ? 0.45f : 0.65f);
@@ -98,7 +122,7 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         QuestVoxelDraggable rayVoxel = null;
         QuestRayButton button = null;
 
-        if (held == null)
+        if (held == null && !(editing && editMode != QuestVoxelEditMode.Add))
         {
             if (Physics.Raycast(transform.position, transform.forward, out RaycastHit hit,
                 rayDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
@@ -124,6 +148,14 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         if (down && !pressed)
         {
             if (button != null) button.Press();
+            else if (QuestVoxelEditor.Mode == QuestVoxelEditMode.Add && active != null)
+            {
+                if (active.BeginAddStroke(transform)) StartEdit(active, null);
+            }
+            else if (EditorVoxel(candidate, active) is GeneratedVoxel voxel)
+            {
+                if (active.BeginDrag(voxel, transform)) StartEdit(active, candidate);
+            }
             else if (candidate != null && candidate.TryGrab(transform)) held = candidate;
         }
         if (!down && pressed) Release();
@@ -134,10 +166,21 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
             held.MoveWithController(transform);
             end = held.transform.position;
         }
+        else if (editing && editMode == QuestVoxelEditMode.Add) editor.UpdateAddStroke(transform, rayDistance);
+        else if (editing)
+        {
+            editor.UpdateDrag(transform);
+            if (editTarget != null) end = editTarget.transform.position;
+        }
         else if (candidate != null) end = candidate.transform.position;
-        SetHoveredVoxel(held != null ? held : rayVoxel);
+        SetHoveredVoxel(held != null ? held : editTarget != null ? editTarget : rayVoxel);
+        if (active != null)
+        {
+            if (QuestVoxelEditor.Mode == QuestVoxelEditMode.Add && button == null) active.UpdatePreview(transform, rayDistance);
+            else active.HidePreview(transform);
+        }
 
-        Color color = held != null ? new Color(1f, 0.75f, 0.1f) :
+        Color color = held != null ? ModeColors[0] : editing ? ModeColors[(int)editMode] : gripHeld ? QuestVoxelEditor.SelectedColor :
             candidate != null || button != null ? Color.cyan : new Color(0.4f, 0.65f, 0.8f, 0.65f);
         line.enabled = true;
         line.startColor = line.endColor = color;
@@ -171,10 +214,35 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         if (hoveredButton != null) hoveredButton.SetHover(this, true);
     }
 
+    // Generated voxels of the Active editor are edited on the grid; anything else keeps free dragging.
+    private static GeneratedVoxel EditorVoxel(QuestVoxelDraggable candidate, QuestVoxelEditor active)
+    {
+        if (candidate == null || active == null) return null;
+        var voxel = candidate.GetComponent<GeneratedVoxel>();
+        return voxel != null && voxel.transform.parent == active.transform ? voxel : null;
+    }
+
+    private void StartEdit(QuestVoxelEditor active, QuestVoxelDraggable target)
+    {
+        editor = active;
+        editTarget = target;
+        editMode = QuestVoxelEditor.Mode;
+        editing = true;
+    }
+
+    private void EndEdit()
+    {
+        if (editing && editor != null) editor.End(transform);
+        editor = null;
+        editTarget = null;
+        editing = false;
+    }
+
     private void Release()
     {
         if (held != null) held.Release(transform);
         held = null;
+        EndEdit();
     }
 
     private void SetHoveredVoxel(QuestVoxelDraggable voxel)
@@ -193,7 +261,8 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         Release();
         SetHoveredButton(null);
         SetHoveredVoxel(null);
-        pressed = armed = false;
+        if (QuestVoxelEditor.Active != null) QuestVoxelEditor.Active.HidePreview(transform);
+        pressed = armed = gripHeld = false;
         if (line != null) line.enabled = false;
     }
 

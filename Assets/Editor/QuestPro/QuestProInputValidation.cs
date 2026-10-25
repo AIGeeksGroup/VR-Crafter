@@ -65,7 +65,7 @@ public static class QuestProInputValidation
             InputSystem.RegisterLayout<OculusTouchControllerProfile.OculusTouchController>();
             foreach (string baseLayout in new[] { "QuestProTouchController", "OculusTouchController" })
                 InputSystem.RegisterLayout("{\"name\":\"Validation" + baseLayout + "\",\"extend\":\"" + baseLayout +
-                    "\",\"controls\":[{\"name\":\"pointer\",\"offset\":64},{\"name\":\"devicePose\",\"offset\":128},{\"name\":\"trigger\",\"offset\":0},{\"name\":\"secondaryButton\",\"offset\":4},{\"name\":\"thumbstick\",\"offset\":8}]}");
+                    "\",\"controls\":[{\"name\":\"pointer\",\"offset\":64},{\"name\":\"devicePose\",\"offset\":128},{\"name\":\"trigger\",\"offset\":0},{\"name\":\"secondaryButton\",\"offset\":4},{\"name\":\"thumbstick\",\"offset\":8},{\"name\":\"grip\",\"offset\":16},{\"name\":\"primaryButton\",\"offset\":20}]}");
             foreach (bool pro in new[] { true, false })
             foreach (bool left in new[] { true, false })
             {
@@ -76,6 +76,8 @@ public static class QuestProInputValidation
                 SetPose(device, "devicePose", true, new Vector3(-1f, 0f, 0f), Quaternion.identity);
                 InputState.Change(device.GetChildControl<AxisControl>("trigger"), 0.8f);
                 InputState.Change(device.GetChildControl<Vector2Control>("thumbstick"), new Vector2(0.6f, -0.8f));
+                InputState.Change(device.GetChildControl<AxisControl>("grip"), 0.8f);
+                InputState.Change(device.GetChildControl<ButtonControl>("primaryButton"), 1f);
                 Debug.Log($"[Input regression] {device.layout} added={device.added} enabled={device.enabled} " +
                     $"tracked={device.GetChildControl<ButtonControl>("pointer/isTracked").ReadValue()} pressed={device.GetChildControl<ButtonControl>("pointer/isTracked").isPressed} " +
                     $"flags={device.GetChildControl<IntegerControl>("pointer/trackingState").ReadValue()} trigger={device.GetChildControl<AxisControl>("trigger").ReadValue()}");
@@ -84,6 +86,7 @@ public static class QuestProInputValidation
                 Check(state.position == new Vector3(0.2f, 1.2f, 0.3f) && Quaternion.Angle(state.rotation, Quaternion.Euler(5f, 20f, 0f)) < 0.01f,
                     "OpenXR aim pose is used instead of grip pose", results);
                 Check((state.joystick - new Vector2(0.6f, -0.8f)).magnitude < 0.001f, "Joystick axes read correctly for " + device.layout + (left ? " left" : " right"), results);
+                Check(Mathf.Approximately(state.grip, 0.8f) && state.primary, "Grip and A/X read correctly for " + device.layout + (left ? " left" : " right"), results);
                 // Reproduce the user's physical Link session: isTracked=0 while
                 // trackingState=15, a changing aim pose, and trigger=1 are received.
                 SetPose(device, "devicePose", false, Vector3.zero, Quaternion.identity);

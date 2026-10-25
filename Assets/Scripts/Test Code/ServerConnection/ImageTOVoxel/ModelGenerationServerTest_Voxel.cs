@@ -70,7 +70,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     public int GridSize => currentGridSize;
     public float VoxelSize => voxelSize;
     public int MaxVoxels => maxVoxels;
-    public bool CanSubmitEdits => !isRunning && voxelRoot != null && !string.IsNullOrEmpty(revisionsUrl);
+    public bool CanSubmitEdits => !isRunning && voxelRoot != null && !string.IsNullOrEmpty(revisionsUrl) &&
+        (QuestVoxelEditor.Active == null || !QuestVoxelEditor.Active.IsBusy);
     private int currentGridSize = 64;
     private float appliedVoxelSize = -1f;
     private float alignedModelVoxelSize = -1f;
@@ -534,6 +535,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
         if (voxelBatch != null) voxelBatch.FlushDirty();
         appliedVoxelSize = voxelSize;
+        // A fresh editor per build: the selection is cleared and the edit mode is kept.
+        voxelRoot.AddComponent<QuestVoxelEditor>().Initialize(this);
         Debug.Log("[ModelGenerationServerTest] Voxels generated: " + GeneratedVoxelCount);
         StatusMessage = $"{GeneratedVoxelCount:N0} voxels ready. Hold Trigger to drag one.";
     }
@@ -734,6 +737,13 @@ public class GeneratedVoxel : MonoBehaviour
     {
         if (IsRayHighlighted == value) return;
         IsRayHighlighted = value;
+        if (renderBatch != null) renderBatch.MarkColorsDirty(renderChunk);
+    }
+    public bool IsSelected { get; private set; }
+    public void SetSelected(bool value)
+    {
+        if (IsSelected == value) return;
+        IsSelected = value;
         if (renderBatch != null) renderBatch.MarkColorsDirty(renderChunk);
     }
     public void SetRenderBatch(QuestVoxelBatchRenderer batch, int chunk) { renderBatch = batch; renderChunk = chunk; }

@@ -9,6 +9,7 @@ public sealed class QuestRayButton : MonoBehaviour
     private readonly HashSet<QuestProTriggerInteractor> pointers = new HashSet<QuestProTriggerInteractor>();
     private Button button;
     private Image background;
+    public bool IsActive { get; set; }
 
     private void Awake()
     {
@@ -31,7 +32,7 @@ public sealed class QuestRayButton : MonoBehaviour
     private void LateUpdate()
     {
         if (background == null || button == null) return;
-        background.color = !button.IsInteractable() ? new Color(0.2f, 0.25f, 0.3f) :
+        background.color = !button.IsInteractable() ? new Color(0.2f, 0.25f, 0.3f) : IsActive ? new Color(0.95f, 0.6f, 0.1f) :
             pointers.Count > 0 ? new Color(0.1f, 0.65f, 0.85f) : new Color(0.05f, 0.35f, 0.55f);
     }
 

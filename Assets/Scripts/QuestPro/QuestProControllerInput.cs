@@ -16,6 +16,8 @@ public static class QuestProControllerInput
         public float trigger;
         public bool recenter;
         public Vector2 joystick;
+        public float grip;
+        public bool primary;
     }
 
     // Meta SDK 201 resets this map at SubsystemRegistration. Ensure it is enabled again
@@ -61,6 +63,9 @@ public static class QuestProControllerInput
         state.trigger = trigger.ReadValue();
         state.recenter = device.TryGetChildControl<ButtonControl>("secondaryButton")?.isPressed == true;
         state.joystick = device.TryGetChildControl<Vector2Control>("thumbstick")?.ReadValue() ?? Vector2.zero;
+        // Optional editing controls: never throw on a layout that types them differently.
+        state.grip = (device.TryGetChildControl("grip") as AxisControl)?.ReadValue() ?? 0f;
+        state.primary = (device.TryGetChildControl("primaryButton") as ButtonControl)?.isPressed == true;
         return true;
     }
 
@@ -84,6 +89,8 @@ public static class QuestProControllerInput
         }
         device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.secondaryButton, out state.recenter);
         device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out state.joystick);
+        device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.grip, out state.grip);
+        device.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out state.primary);
         return true;
     }
 

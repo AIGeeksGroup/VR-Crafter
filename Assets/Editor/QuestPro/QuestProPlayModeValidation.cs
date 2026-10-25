@@ -194,6 +194,7 @@ public static class QuestProPlayModeValidation
 
     private static void ValidateTriggerInput()
     {
+        QuestVoxelEditor.Mode = QuestVoxelEditMode.Move;
         var hand = new GameObject("Validation Trigger Controller");
         var interactor = hand.AddComponent<QuestProTriggerInteractor>();
         interactor.enabled = false; // Feed deterministic tracking/trigger samples without hardware.

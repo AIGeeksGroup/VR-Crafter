@@ -15,6 +15,7 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
     private Transform workspace;
     private Button generateButton;
     private Button submitButton;
+    private readonly QuestRayButton[] modeButtons = new QuestRayButton[4];
     private Text statusText;
     private Text buttonLabel;
     private Font font;
@@ -86,6 +87,7 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         generateButton.interactable = !generator.IsRunning;
         buttonLabel.text = generator.IsRunning ? "Generating..." : "Get 3D Model";
         submitButton.interactable = generator.CanSubmitEdits;
+        for (int i = 0; i < modeButtons.Length; i++) modeButtons[i].IsActive = i == (int)QuestVoxelEditor.Mode;
         statusText.text = generator.StatusMessage;
         if (Time.unscaledTime >= nextControllerStatusUpdate)
         {
@@ -159,7 +161,12 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         CreateText(canvasObject.transform, "Instructions", "Grip: select   A/X: clear   Trigger: use mode\nMove/Fill/Erase drag the selection. Add places voxels.",
             new Vector2(0f, 125f), new Vector2(520f, 70f), 20);
 
-        // The row at y=45 is reserved for the edit-mode buttons.
+        for (int i = 0; i < modeButtons.Length; i++)
+        {
+            var mode = (QuestVoxelEditMode)i;
+            modeButtons[i] = CreateButton(mode + " Mode", mode.ToString(), new Vector2(-195f + 130f * i, 45f), new Vector2(120f, 64f),
+                () => QuestVoxelEditor.Mode = mode).Item1.GetComponent<QuestRayButton>();
+        }
         (generateButton, buttonLabel) = CreateButton("Get 3D Model", "Get 3D Model", new Vector2(-120f, -45f), new Vector2(220f, 80f), generator.UploadImageAndGenerate);
         submitButton = CreateButton("Submit Edits", "Submit Edits", new Vector2(120f, -45f), new Vector2(220f, 80f), generator.SubmitEdits).Item1;
         statusText = CreateText(canvasObject.transform, "Status", "Ready", new Vector2(0f, -140f), new Vector2(490f, 110f), 22);
