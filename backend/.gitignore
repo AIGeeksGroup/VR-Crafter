@@ -7,3 +7,4 @@ venv/
 .ipynb_checkpoints/
 data/received_images/*
 !data/received_images/.gitkeep
+data/generations/
