@@ -691,7 +691,7 @@ MonoBehaviour:
   outputMode: 2
   maxVoxels: 12000
   autoRunOnPlay: 0
-  requestTimeoutSeconds: 180
+  requestTimeoutSeconds: 600
   modelParent: {fileID: 0}
   modelPosition: {x: 0, y: 0, z: 2}
   modelScale: {x: 1, y: 1, z: 1}

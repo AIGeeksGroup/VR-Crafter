@@ -12,6 +12,8 @@ using GLTFast;
 /// 2. Receive a GLB model URL, voxel data, or both.
 /// 3. Display the result in the Unity scene.
 /// 4. Submit Edits posts the edited voxels as a new revision and rebuilds from the response.
+///    If the server already has a newer revision (a submit that timed out but was committed),
+///    Unity loads that revision from generation_url instead.
 ///
 /// Voxel mode:
 /// - The server returns voxel coordinates (with stable ids) in a 64x64x64 grid.
@@ -36,7 +38,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     [SerializeField] private OutputMode outputMode = OutputMode.Voxels;
     [SerializeField, Min(1)] private int maxVoxels = 12000;
     [SerializeField] private bool autoRunOnPlay = false;
-    [SerializeField, Min(1)] private int requestTimeoutSeconds = 180;
+    [Tooltip("Seconds before Get 3D Model or Submit Edits gives up waiting. TRELLIS.2 timings are not measured yet.")]
+    [SerializeField, Min(1)] private int requestTimeoutSeconds = 600;
 
     [Header("GLB Model Output")]
     [SerializeField] private Transform modelParent;
@@ -70,15 +73,20 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     public int GridSize => currentGridSize;
     public float VoxelSize => voxelSize;
     public int MaxVoxels => maxVoxels;
+    // Needs the editor of the current root, which is attached only after a complete build: a build cut short
+    // never submits its partial voxel set, whose missing ids the server would delete.
     public bool CanSubmitEdits => !isRunning && voxelRoot != null && !string.IsNullOrEmpty(revisionsUrl) &&
-        (QuestVoxelEditor.Active == null || !QuestVoxelEditor.Active.IsBusy);
+        QuestVoxelEditor.Active != null && QuestVoxelEditor.Active.gameObject == voxelRoot && !QuestVoxelEditor.Active.IsBusy;
     private int currentGridSize = 64;
     private float appliedVoxelSize = -1f;
     private float alignedModelVoxelSize = -1f;
     private QuestVoxelBatchRenderer voxelBatch;
     private string revisionsUrl;
+    private string generationUrl;
     private int currentRevision;
     private bool alignModelToVoxels;
+    private bool modelLoadFailed;
+    private const string ModelLoadFailedNote = " GLB failed to load; see Console.";
 
     private readonly Dictionary<string, Material> materialCache = new Dictionary<string, Material>();
 
@@ -117,6 +125,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         public int revision;
         public string model_space;
         public string revisions_url;
+        public string generation_url;
         public int grid_size;
         public int voxel_count;
         public VoxelData[] voxels;
@@ -300,13 +309,14 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         UnityWebRequest request = UnityWebRequest.Post(generateUrl, form);
         activeRequest = request;
         request.timeout = requestTimeoutSeconds;
+        float sentAt = Time.realtimeSinceStartup;
         yield return request.SendWebRequest();
 
         if (request.result != UnityWebRequest.Result.Success)
         {
             Debug.LogError("[ModelGenerationServerTest] Upload failed: " + request.error);
             Debug.LogError(request.downloadHandler.text);
-            StatusMessage = "Cannot reach generation server. Start the Python server and retry.";
+            StatusMessage = RequestFailureStatus(request, sentAt);
             yield break;
         }
 
@@ -329,22 +339,76 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         UnityWebRequest request = UnityWebRequest.Post(revisionsUrl, JsonUtility.ToJson(body), "application/json");
         activeRequest = request;
         request.timeout = requestTimeoutSeconds;
+        float sentAt = Time.realtimeSinceStartup;
         yield return request.SendWebRequest();
 
         if (request.result != UnityWebRequest.Result.Success)
         {
             Debug.LogError("[ModelGenerationServerTest] Submit failed: " + request.error);
             Debug.LogError(request.downloadHandler.text);
-            StatusMessage = "Cannot reach generation server. Start the Python server and retry.";
+            StatusMessage = RequestFailureStatus(request, sentAt);
+            yield break;
+        }
+
+        ServerResponse response = ParseServerResponse(request.downloadHandler.text);
+        if (IsStaleRevision(response) && !string.IsNullOrEmpty(generationUrl))
+        {
+            request.Dispose();
+            activeRequest = null;
+            yield return LoadLatestRevisionRoutine();
+            yield break;
+        }
+        yield return ApplyServerResponse(response);
+        if (outside > 0 && BuiltVoxelsFrom(response)) StatusMessage += $" {outside} voxels outside the grid were removed.";
+    }
+
+    // The server committed a revision this client never received, typically a submit that timed out
+    // on the client but finished on the server; pressing Submit Edits again then lands here.
+    private static bool IsStaleRevision(ServerResponse r) =>
+        r != null && r.status == "error" && r.error != null &&
+        r.error.StartsWith("Revision ", System.StringComparison.Ordinal) && r.error.Contains(" is stale; latest is ");
+
+    // Rebuilds from the latest committed revision. Edits made after it are replaced; a failed request
+    // or an error response leaves the current voxels untouched.
+    private IEnumerator LoadLatestRevisionRoutine()
+    {
+        Debug.Log("[ModelGenerationServerTest] Base revision is stale; loading " + generationUrl);
+        StatusMessage = "Loading the server's latest revision...";
+        UnityWebRequest request = UnityWebRequest.Get(generationUrl);
+        activeRequest = request;
+        request.timeout = requestTimeoutSeconds;
+        float sentAt = Time.realtimeSinceStartup;
+        yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogError("[ModelGenerationServerTest] Loading the latest revision failed: " + request.error);
+            StatusMessage = RequestFailureStatus(request, sentAt);
             yield break;
         }
 
         ServerResponse response = ParseServerResponse(request.downloadHandler.text);
         yield return ApplyServerResponse(response);
-        if (response == null || response.status != "done" || response.voxels == null || response.voxels.Length == 0) yield break;
-        StatusMessage = $"Revision {currentRevision}: {GeneratedVoxelCount} voxels ready." +
-            (outside > 0 ? $" {outside} voxels outside the grid were removed." : "");
+        if (BuiltVoxelsFrom(response))
+            StatusMessage = $"Server already had revision {currentRevision}; loaded it. Re-apply edits made since then." +
+                (modelLoadFailed ? ModelLoadFailedNote : "");
     }
+
+    // A timed-out request may still finish on the server, so it is not reported as an unreachable server.
+    private string RequestFailureStatus(UnityWebRequest request, float sentAt)
+    {
+        string error = request.error ?? "";
+        bool timedOut = request.result == UnityWebRequest.Result.ConnectionError &&
+            (error.IndexOf("timeout", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+             error.IndexOf("timed out", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+             Time.realtimeSinceStartup - sentAt >= requestTimeoutSeconds);
+        return timedOut
+            ? $"Request timed out after {requestTimeoutSeconds} s; the server may still be working. Wait, then retry."
+            : "Cannot reach generation server. Start the Python server and retry.";
+    }
+
+    private bool BuiltVoxelsFrom(ServerResponse r) =>
+        ShouldBuildVoxels() && r != null && r.status == "done" && r.voxels != null && r.voxels.Length > 0;
 
     private ServerResponse ParseServerResponse(string json)
     {
@@ -369,8 +433,10 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
         currentGridSize = r.grid_size > 0 ? r.grid_size : 64;
         revisionsUrl = r.revisions_url;
+        generationUrl = r.generation_url;
         currentRevision = r.revision;
         alignModelToVoxels = r.model_space == "trellis_unit_cube";
+        modelLoadFailed = false;
 
         if (ShouldLoadModel())
         {
@@ -392,6 +458,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             if (r.voxels != null && r.voxels.Length > 0)
             {
                 yield return BuildVoxelsRoutine(r);
+                if (modelLoadFailed) StatusMessage += ModelLoadFailedNote;
             }
             else
             {
@@ -476,6 +543,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             Debug.LogError("[ModelGenerationServerTest] Failed to load GLB: " + modelUrl);
             DestroyGeneratedObject(modelRoot);
             modelRoot = null;
+            modelLoadFailed = true;
+            StatusMessage = ModelLoadFailedNote.Trim();
             yield break;
         }
 
@@ -490,6 +559,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             Debug.LogError("[ModelGenerationServerTest] Failed to instantiate GLB.");
             DestroyGeneratedObject(modelRoot);
             modelRoot = null;
+            modelLoadFailed = true;
+            StatusMessage = ModelLoadFailedNote.Trim();
             yield break;
         }
 
@@ -538,7 +609,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         // A fresh editor per build: the selection is cleared and the edit mode is kept.
         voxelRoot.AddComponent<QuestVoxelEditor>().Initialize(this);
         Debug.Log("[ModelGenerationServerTest] Voxels generated: " + GeneratedVoxelCount);
-        StatusMessage = $"{GeneratedVoxelCount:N0} voxels ready. Hold Trigger to drag one.";
+        StatusMessage = $"Revision {response.revision}: {GeneratedVoxelCount} voxels ready.";
     }
 
     // Returns null when Max Voxels is reached. Keeps GeneratedVoxelCount and the draw batches in sync.
@@ -634,11 +705,13 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     }
 
     // A trellis_unit_cube GLB spans [-0.5, 0.5]^3 around the grid centre: scale it by G*s and
-    // lift it by (G-1)/2*s so it overlaps the voxels, whose lowest layer sits at y=0.
+    // lift it by (G-1)/2*s so it overlaps the voxels, whose lowest layer sits at y=0. Both are
+    // in voxel-root units, so the voxel root's scale applies to the lift as well.
     private void ApplyModelAlignment()
     {
         if (modelRoot == null || !alignModelToVoxels) return;
-        modelRoot.transform.localPosition = voxelRootPosition + Vector3.up * ((currentGridSize - 1) * 0.5f * voxelSize);
+        modelRoot.transform.localPosition = voxelRootPosition +
+            Vector3.Scale(voxelRootScale, Vector3.up * ((currentGridSize - 1) * 0.5f * voxelSize));
         modelRoot.transform.localScale = voxelRootScale * (currentGridSize * voxelSize);
         alignedModelVoxelSize = voxelSize;
     }

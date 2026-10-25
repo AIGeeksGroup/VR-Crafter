@@ -49,10 +49,15 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     }
 
     // The previous root is destroyed at the end of the frame, after the next model's editor became Active.
+    // The preview cubes are children of this root and go with it; only their materials are freed here.
     private void OnDestroy()
     {
         if (Active == this) Active = null;
-        foreach (var preview in previews) if (preview.material != null) Destroy(preview.material);
+        foreach (var preview in previews)
+        {
+            if (preview.material == null) continue;
+            if (Application.isPlaying) Destroy(preview.material); else DestroyImmediate(preview.material);
+        }
     }
 
     public void Select(GeneratedVoxel voxel)

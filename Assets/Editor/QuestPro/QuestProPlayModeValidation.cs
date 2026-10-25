@@ -45,7 +45,7 @@ public static class QuestProPlayModeValidation
         if (!EditorApplication.isPlaying) return;
         try
         {
-            if (EditorApplication.timeSinceStartup - since > 150) throw new Exception("Play Mode validation timed out at stage " + stage);
+            if (EditorApplication.timeSinceStartup - since > 240) throw new Exception("Play Mode validation timed out at stage " + stage);
             if (stage == 0)
             {
                 if (Time.time < 4f) return;
@@ -107,7 +107,7 @@ public static class QuestProPlayModeValidation
                 stage = 5;
                 return;
             }
-            // Stages 5-6 edit voxels through the generator API (no VR input) and need the fixture backend.
+            // Stages 5-8 edit voxels through the generator API (no VR input) and need the fixture backend.
             if (stage == 5)
             {
                 if (!submitted)
@@ -159,6 +159,46 @@ public static class QuestProPlayModeValidation
                 if (generator.IsRunning) return;
                 Require(generator.GeneratedVoxelCount == baseCount - 1 && generator.StatusMessage.Contains("Revision 2") &&
                     generator.StatusMessage.Contains("removed"), "Out-of-grid voxels are removed on submit: " + generator.StatusMessage);
+                submitted = false;
+                stage = 7;
+                return;
+            }
+            // A submit that times out in Unity but is committed by the server leaves Unity one revision behind. Rewinding
+            // the client's revision to 1 while the server has 2 recreates that state without depending on server timing.
+            if (stage == 7)
+            {
+                if (!submitted)
+                {
+                    if (!submit.GetComponent<Button>().interactable) return;
+                    baseCount = generator.GeneratedVoxelCount;
+                    typeof(ModelGenerationServerTest_Voxel).GetField("currentRevision",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(generator, 1);
+                    generator.DestroyVoxel(generator.VoxelRoot.GetComponentInChildren<GeneratedVoxel>());
+                    submit.Press();
+                    Require(generator.IsRunning, "Submit Edits posts from a stale base revision");
+                    submitted = true;
+                    return;
+                }
+                if (generator.IsRunning) return;
+                Require(generator.StatusMessage.StartsWith("Server already had revision 2; loaded it.") && generator.GeneratedVoxelCount == baseCount,
+                    "A stale submit reloads the server's latest revision: " + generator.StatusMessage);
+                submitted = false;
+                stage = 8;
+                return;
+            }
+            if (stage == 8)
+            {
+                if (!submitted)
+                {
+                    if (!submit.GetComponent<Button>().interactable) return;
+                    submit.Press();
+                    Require(generator.IsRunning, "Submit Edits is available again after the reload");
+                    submitted = true;
+                    return;
+                }
+                if (generator.IsRunning) return;
+                Require(generator.StatusMessage.StartsWith("Revision 3:") && generator.GeneratedVoxelCount == baseCount,
+                    "The reloaded model submits as revision 3: " + generator.StatusMessage);
                 Finish(0);
             }
         }

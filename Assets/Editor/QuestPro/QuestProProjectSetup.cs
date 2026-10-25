@@ -55,7 +55,8 @@ public static class QuestProProjectSetup
         serialized.FindProperty("outputMode").enumValueIndex = (int)ModelGenerationServerTest_Voxel.OutputMode.Both;
         serialized.FindProperty("voxelSize").floatValue = 0.015f;
         serialized.FindProperty("voxelRootPosition").vector3Value = new Vector3(0f, 0.85f, 1.15f);
-        serialized.FindProperty("requestTimeoutSeconds").intValue = 180;
+        // Generous until TRELLIS.2 timings are measured; a timeout leaves a submit to finish on the server.
+        serialized.FindProperty("requestTimeoutSeconds").intValue = 600;
         serialized.ApplyModifiedPropertiesWithoutUndo();
         generator.enabled = true;
         var legacy = generator.GetComponent<ModelGenerationServerTest>();

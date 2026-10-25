@@ -84,7 +84,7 @@ public static class QuestVoxelEditorValidation
             Check(d.Cell == new Vector3Int(5, 20, 7) && a.Cell == new Vector3Int(13, 5, 10) && b.Cell == new Vector3Int(13, 6, 10) && editor.SelectionCount == 2,
                 "Unselected voxel drags alone", results);
 
-            typeof(ModelGenerationServerTest_Voxel).GetField("revisionsUrl", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(generator, "http://127.0.0.1:8000/validation");
+            SetRevisionsUrl("http://127.0.0.1:8000/validation");
             bool idleSubmit = generator.CanSubmitEdits;
             bool started = editor.BeginDrag(c, left);
             bool busySubmit = generator.CanSubmitEdits;
@@ -94,7 +94,7 @@ public static class QuestVoxelEditorValidation
             editor.End(left);
             Check(idleSubmit && started && !busySubmit && !secondHand && stillBusy && !editor.IsBusy && generator.CanSubmitEdits,
                 "One drag at a time; Submit Edits waits for it", results);
-            typeof(ModelGenerationServerTest_Voxel).GetField("revisionsUrl", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(generator, null);
+            SetRevisionsUrl(null);
 
             // A running request (Get 3D Model or Submit Edits) rebuilds the voxels, so no edit may start meanwhile.
             var running = typeof(ModelGenerationServerTest_Voxel).GetField("isRunning", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -212,8 +212,18 @@ public static class QuestVoxelEditorValidation
                 generator.StatusMessage.Contains("Max Voxels reached"), "Add stops at Max Voxels: " + generator.StatusMessage, results);
             SetSerialized("maxVoxels", 12000);
 
+            // Rebuilding destroys the root that owns the Add preview; its teardown must not call Destroy in edit mode.
+            var editModeDestroyErrors = new List<string>();
+            Application.LogCallback onLog = (message, stack, type) =>
+            {
+                if (type == LogType.Error && message.Contains("edit mode")) editModeDestroyErrors.Add(message);
+            };
+            Application.logMessageReceived += onLog;
+            try { Build((20, 5, 10, "#0000FF")); }
+            finally { Application.logMessageReceived -= onLog; }
+            Check(preview == null && editModeDestroyErrors.Count == 0, "Rebuilding after Add tears down the preview without edit-mode Destroy errors", results);
+
             // A 189-cell air line is laid at most GridSize cells per update and continues on the next ones without gaps.
-            Build((20, 5, 10, "#0000FF"));
             Aim(left, Vector3Int.zero, Vector3.up);
             editor.BeginAddStroke(left);
             editor.UpdateAddStroke(left, 4f);
@@ -292,6 +302,22 @@ public static class QuestVoxelEditorValidation
             bool notFreeDragged = QuestVoxelEditor.Active == null && Voxels().All(v => v.GetComponent<QuestVoxelDraggable>().Owner == null);
             Call(pointer, "ProcessInput", true, 0f);
             Check(notFreeDragged, "Voxels of a model without an editor (still building) are not free-dragged", results);
+
+            // Submit Edits needs the editor of the current root. A build cut short has none, so its partial voxel set is never
+            // sent (the server would delete every missing id); an editor still Active on another root does not count either.
+            SetRevisionsUrl("http://127.0.0.1:8000/validation");
+            var partial = StartBuild(Enumerable.Range(0, 300).Select(i => (i % 64, 5 + i / 64, 10, "#FF0000")).ToArray());
+            partial.MoveNext();
+            bool partialBlocked = generator.GeneratedVoxelCount < 300 && generator.VoxelRoot.GetComponent<QuestVoxelEditor>() == null &&
+                !generator.CanSubmitEdits;
+            while (partial.MoveNext()) { }
+            bool builtAllowed = generator.GeneratedVoxelCount == 300 && generator.CanSubmitEdits;
+            var stray = new GameObject("Validation Stray Editor").AddComponent<QuestVoxelEditor>();
+            stray.Initialize(generator);
+            bool strayBlocked = QuestVoxelEditor.Active == stray && !generator.CanSubmitEdits;
+            UnityEngine.Object.DestroyImmediate(stray.gameObject);
+            SetRevisionsUrl(null);
+            Check(partialBlocked && builtAllowed && strayBlocked, "Submit Edits waits for the finished build's own editor", results);
         }
         finally
         {
@@ -310,16 +336,25 @@ public static class QuestVoxelEditorValidation
     // Rebuilds through the private BuildVoxelsRoutine exactly as ConfigureAndValidate does.
     private static void Build(params (int x, int y, int z, string color)[] voxels)
     {
-        string json = "{\"status\":\"done\",\"grid_size\":64,\"voxels\":[" + string.Join(",", voxels.Select((v, i) =>
-            $"{{\"id\":{i},\"x\":{v.x},\"y\":{v.y},\"z\":{v.z},\"type\":\"occupied\",\"color\":\"{v.color}\"}}")) + "]}";
-        var responseType = typeof(ModelGenerationServerTest_Voxel).GetNestedType("ServerResponse", BindingFlags.NonPublic);
-        var build = (IEnumerator)typeof(ModelGenerationServerTest_Voxel).GetMethod("BuildVoxelsRoutine", BindingFlags.NonPublic | BindingFlags.Instance)
-            .Invoke(generator, new[] { JsonUtility.FromJson(json, responseType) });
+        var build = StartBuild(voxels);
         while (build.MoveNext()) { }
         root = generator.VoxelRoot;
         editor = root.GetComponent<QuestVoxelEditor>();
         Physics.SyncTransforms();
     }
+
+    // The build routine before its first step; each MoveNext builds one frame's slice.
+    private static IEnumerator StartBuild((int x, int y, int z, string color)[] voxels)
+    {
+        string json = "{\"status\":\"done\",\"grid_size\":64,\"voxels\":[" + string.Join(",", voxels.Select((v, i) =>
+            $"{{\"id\":{i},\"x\":{v.x},\"y\":{v.y},\"z\":{v.z},\"type\":\"occupied\",\"color\":\"{v.color}\"}}")) + "]}";
+        var responseType = typeof(ModelGenerationServerTest_Voxel).GetNestedType("ServerResponse", BindingFlags.NonPublic);
+        return (IEnumerator)typeof(ModelGenerationServerTest_Voxel).GetMethod("BuildVoxelsRoutine", BindingFlags.NonPublic | BindingFlags.Instance)
+            .Invoke(generator, new[] { JsonUtility.FromJson(json, responseType) });
+    }
+
+    private static void SetRevisionsUrl(string url) =>
+        typeof(ModelGenerationServerTest_Voxel).GetField("revisionsUrl", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(generator, url);
 
     private static GeneratedVoxel[] Voxels() => root.GetComponentsInChildren<GeneratedVoxel>();
     private static GeneratedVoxel At(int x, int y, int z) => Voxels().FirstOrDefault(v => v.Cell == new Vector3Int(x, y, z));
