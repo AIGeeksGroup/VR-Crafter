@@ -2,16 +2,29 @@
 
 ## Current flow
 
-1. Enter Play Mode in Unity.
-2. `QuestProLocalTestServer` starts the FastAPI app from `backend/app/main.py`.
-3. Unity sends a PNG to `POST /generate` with `response_mode=both`.
-4. The backend returns a GLB URL and voxel JSON in one response.
-5. Unity loads the GLB with glTFast and builds the voxel object.
-6. The user can move individual voxels in VR.
+1. Enter Play Mode in Unity. `QuestProLocalTestServer` starts the fixture
+   backend from `backend/app/main.py` unless something already answers on
+   port 8000 (for example a TRELLIS.2 backend through a tunnel).
+2. Click **Get 3D Model**. Unity sends a PNG to `POST /generate` with
+   `response_mode=both`.
+3. One response carries the `generation_id`, `revision` 0, the voxels (each with
+   a stable `id`) and the `model_url` of that revision's GLB.
+4. Unity builds the voxel object and loads the GLB with glTFast, scaled and
+   offset to overlap the voxels.
+5. The user edits in VR: Grip selects voxels, then Move, Fill, Erase or Add
+   (controls in [../README-QuestPro.md](../README-QuestPro.md)).
+6. **Submit Edits** posts the complete voxel list to
+   `POST /generations/{generation_id}/revisions` with the `base_revision`.
+7. The backend answers with the next revision: new voxels with assigned ids and
+   a new `model_url`. Unity rebuilds both from the response and the status bar
+   shows `Revision {n}`.
 
-The current backend is a communication fixture: it stores the uploaded image,
-returns `models/PropertyDemoModel.glb`, and generates a deterministic voxel
-house. The image is not used for AI inference yet.
+With `VRCRAFTER_GENERATOR=fixture` (the default) the backend ignores the image
+and returns a deterministic voxel house and the bundled GLB, so the loop can be
+tested without a GPU. With `trellis2`, structure sampling gives the voxels and
+the 1024 pipeline gives a GLB for exactly the submitted voxels. Check
+`generator` in `/status` to see which one is running. The API is described in
+[README.md](README.md).
 
 ## Local setup
 
@@ -35,16 +48,36 @@ address, while Uvicorn listens on `0.0.0.0`.
 
 ## Verified behavior
 
-- Unity 6000.3.15f1 compiles the integration scripts.
-- `/status` reports the backend and model as available.
-- A real multipart PNG upload returns 9,791 voxels on a 64³ grid.
-- The GLB URL downloads the expected model.
+Verified earlier with the original fixture: Unity 6000.3.15f1 compiled the
+integration scripts, a real multipart PNG upload returned 9,791 voxels on a
+64³ grid, and the GLB URL downloaded the expected model.
 
-## Next phase goal
+The backend (generation store, revisions API, fixture generator) is covered by
+the pytest suite in `backend/tests`.
 
-Create a closed VR co-creation loop. The user should be able to modify the
-generated voxels in Unity, send the edited result back to the backend, and ask
-the generator to continue from that exact state without losing previous work.
+## Next phase: status
 
-To support this goal, each result will need a generation ID, revision history,
-stable voxel IDs, and a model URL tied to the same voxel state.
+Goal: a closed VR co-creation loop where the user edits the generated voxels,
+sends the result back, and the generator continues from that exact state.
+
+Implemented:
+
+- Generation ID, and a revision history on disk (`data/generations/`).
+- Stable voxel IDs, kept across revisions; new voxels get an id from the
+  backend.
+- A model URL tied to each revision's voxel state.
+- Submit Edits, and the generator's `mesh` step run on the edited voxels
+  (TRELLIS.2 reuses the stored image and seed).
+
+Still unverified (none of this has been run):
+
+- All Unity validations on Windows (commands in
+  [../README-QuestPro.md](../README-QuestPro.md)); Unity itself has not run the
+  new editor code.
+- The TRELLIS.2 GPU path: o-voxel and trimesh are not installed, the weights
+  are not downloaded, and no timing, voxel count or VRAM has been measured.
+- Whether the GLB and the voxels overlap, and whether the model's front faces
+  the user, in the headset. The alignment assumes glTFast flips the X axis on
+  import. If the front is wrong, rotate the mapping and the GLB root together
+  around Y (never flip a single axis, which mirrors the shape).
+- `Max Voxels` and `Request Timeout Seconds` are not tuned for TRELLIS.2.
