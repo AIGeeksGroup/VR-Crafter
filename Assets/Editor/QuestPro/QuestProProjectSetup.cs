@@ -52,7 +52,7 @@ public static class QuestProProjectSetup
         var serialized = new SerializedObject(generator);
         serialized.FindProperty("autoRunOnPlay").boolValue = false;
         serialized.FindProperty("makeVoxelsGrabbableForXR").boolValue = true;
-        serialized.FindProperty("outputMode").enumValueIndex = (int)ModelGenerationServerTest_Voxel.OutputMode.Voxels;
+        serialized.FindProperty("outputMode").enumValueIndex = (int)ModelGenerationServerTest_Voxel.OutputMode.Both;
         serialized.FindProperty("voxelSize").floatValue = 0.015f;
         serialized.FindProperty("voxelRootPosition").vector3Value = new Vector3(0f, 0.85f, 1.15f);
         serialized.FindProperty("requestTimeoutSeconds").intValue = 180;

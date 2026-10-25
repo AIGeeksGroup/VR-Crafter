@@ -73,6 +73,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     public bool CanSubmitEdits => !isRunning && voxelRoot != null && !string.IsNullOrEmpty(revisionsUrl);
     private int currentGridSize = 64;
     private float appliedVoxelSize = -1f;
+    private float alignedModelVoxelSize = -1f;
     private QuestVoxelBatchRenderer voxelBatch;
     private string revisionsUrl;
     private int currentRevision;
@@ -158,10 +159,13 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
     private void Update()
     {
-        // Runtime Inspector update: resize existing voxels when Voxel Size changes.
+        // Runtime Inspector update: resize existing voxels and the aligned GLB when Voxel Size changes.
         if (voxelRoot != null && !Mathf.Approximately(voxelSize, appliedVoxelSize))
         {
             ApplyVoxelSizeToExistingVoxels();
+        }
+        if (modelRoot != null && alignModelToVoxels && !Mathf.Approximately(voxelSize, alignedModelVoxelSize))
+        {
             ApplyModelAlignment();
         }
     }
@@ -375,7 +379,10 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             }
             else
             {
+                // Never leave a previous revision's GLB beside the rebuilt voxels.
                 Debug.LogWarning("[ModelGenerationServerTest] No model_url returned. " + r.model_error);
+                DestroyGeneratedObject(modelRoot);
+                modelRoot = null;
             }
         }
 
@@ -630,6 +637,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         if (modelRoot == null || !alignModelToVoxels) return;
         modelRoot.transform.localPosition = voxelRootPosition + Vector3.up * ((currentGridSize - 1) * 0.5f * voxelSize);
         modelRoot.transform.localScale = voxelRootScale * (currentGridSize * voxelSize);
+        alignedModelVoxelSize = voxelSize;
     }
 
     private Material GetMaterial(string htmlColor)
