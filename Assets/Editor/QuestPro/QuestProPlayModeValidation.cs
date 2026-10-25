@@ -1,11 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>Batch smoke test through the actual scene button, HTTP service and Play Mode.</summary>
+/// <summary>Batch smoke test through the actual scene buttons, HTTP service, revision round trip and Play Mode.</summary>
 [InitializeOnLoad]
 public static class QuestProPlayModeValidation
 {
@@ -14,6 +15,12 @@ public static class QuestProPlayModeValidation
     private static double since;
     private static ModelGenerationServerTest_Voxel generator;
     private static QuestRayButton button;
+    private static QuestRayButton submit;
+    private static bool submitted;
+    private static int baseCount;
+    private static int movedId;
+    private static Vector3Int movedCell;
+    private static Vector3Int addedCell;
 
     static QuestProPlayModeValidation()
     {
@@ -43,8 +50,10 @@ public static class QuestProPlayModeValidation
             {
                 if (Time.time < 4f) return;
                 generator = UnityEngine.Object.FindFirstObjectByType<ModelGenerationServerTest_Voxel>();
-                button = UnityEngine.Object.FindFirstObjectByType<QuestRayButton>();
+                button = GameObject.Find("Get 3D Model").GetComponent<QuestRayButton>();
+                submit = GameObject.Find("Submit Edits").GetComponent<QuestRayButton>();
                 Require(button != null && generator != null, "VR Get 3D Model button exists in the real scene");
+                Require(submit != null && !submit.GetComponent<Button>().interactable, "VR Submit Edits button exists and waits for a model");
                 Require(UnityEngine.Object.FindObjectsByType<QuestProTriggerInteractor>(FindObjectsSortMode.None).Length == 2, "Both controller anchors have Trigger interactors");
                 Require(!generator.IsRunning && generator.GeneratedVoxelCount == 0, "Play waits for the button without generating automatically");
                 ValidateTriggerInput();
@@ -95,6 +104,61 @@ public static class QuestProPlayModeValidation
                 Require(generator.GeneratedVoxelCount > 100 && generator.StatusMessage.Contains("ready"), "Retry successfully rebuilds the model");
                 Require(UnityEngine.Object.FindObjectsByType<QuestVoxelDraggable>(FindObjectsSortMode.None).Length == generator.GeneratedVoxelCount,
                     "Regeneration cleans up old voxels");
+                stage = 5;
+                return;
+            }
+            // Stages 5-6 edit voxels through the generator API (no VR input) and need the fixture backend.
+            if (stage == 5)
+            {
+                if (!submitted)
+                {
+                    if (!submit.GetComponent<Button>().interactable) return;
+                    var voxels = generator.VoxelRoot.GetComponentsInChildren<GeneratedVoxel>();
+                    var occupied = new HashSet<Vector3Int>(voxels.Select(v => v.Cell));
+                    var moved = voxels.FirstOrDefault(v => v.x + 1 < generator.GridSize && !occupied.Contains(v.Cell + Vector3Int.right));
+                    Require(moved != null, "Generated model has a voxel whose +x cell is empty");
+                    baseCount = generator.GeneratedVoxelCount;
+                    movedId = moved.id;
+                    movedCell = moved.Cell + Vector3Int.right;
+                    generator.MoveVoxelToCell(moved, movedCell);
+                    occupied.Add(movedCell);
+                    addedCell = FindEmptyCell(occupied, generator.GridSize);
+                    Require(generator.CreateVoxel(-1, addedCell, "test", "#00FF00") != null && generator.GeneratedVoxelCount == baseCount + 1,
+                        "Code edits move voxel " + movedId + " one cell and add a new voxel at " + addedCell);
+                    submit.Press();
+                    Require(generator.IsRunning, "Submit Edits posts the edited voxels");
+                    submitted = true;
+                    return;
+                }
+                if (generator.IsRunning) return;
+                var result = generator.VoxelRoot.GetComponentsInChildren<GeneratedVoxel>();
+                var movedVoxel = result.FirstOrDefault(v => v.id == movedId);
+                var added = result.FirstOrDefault(v => v.Cell == addedCell);
+                Require(generator.StatusMessage.Contains("Revision 1"), "Submit rebuilds from revision 1: " + generator.StatusMessage);
+                Require(movedVoxel != null && movedVoxel.Cell == movedCell, "Moved voxel keeps id " + movedId + " at its new cell");
+                Require(generator.GeneratedVoxelCount == baseCount + 1, "Revision 1 has exactly one more voxel");
+                Require(added != null && added.id >= 9791 && added.color == "#00FF00", "New voxel gets a backend id and keeps its color");
+                submitted = false;
+                stage = 6;
+                return;
+            }
+            if (stage == 6)
+            {
+                if (!submitted)
+                {
+                    if (!submit.GetComponent<Button>().interactable) return;
+                    var voxel = generator.VoxelRoot.GetComponentInChildren<GeneratedVoxel>();
+                    generator.MoveVoxelToCell(voxel, new Vector3Int(-3, voxel.y, voxel.z));
+                    Require(voxel.IsOutsideGrid, "A voxel moved to x=-3 is outside the grid");
+                    baseCount = generator.GeneratedVoxelCount;
+                    submit.Press();
+                    Require(generator.IsRunning, "Submit Edits can post a second revision");
+                    submitted = true;
+                    return;
+                }
+                if (generator.IsRunning) return;
+                Require(generator.GeneratedVoxelCount == baseCount - 1 && generator.StatusMessage.Contains("Revision 2") &&
+                    generator.StatusMessage.Contains("removed"), "Out-of-grid voxels are removed on submit: " + generator.StatusMessage);
                 Finish(0);
             }
         }
@@ -110,6 +174,15 @@ public static class QuestProPlayModeValidation
     {
         if (!condition) throw new InvalidOperationException(description);
         File.AppendAllText(SessionState.GetString(Key + ".Report", ""), "PASS: " + description + Environment.NewLine);
+    }
+
+    private static Vector3Int FindEmptyCell(HashSet<Vector3Int> occupied, int size)
+    {
+        for (int y = size - 1; y >= 0; y--)
+            for (int x = 0; x < size; x++)
+                for (int z = 0; z < size; z++)
+                    if (!occupied.Contains(new Vector3Int(x, y, z))) return new Vector3Int(x, y, z);
+        throw new InvalidOperationException("No empty grid cell for a new voxel");
     }
 
     private static void SetUrl(string url)

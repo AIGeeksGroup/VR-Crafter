@@ -11,10 +11,11 @@ using GLTFast;
 /// 1. Upload a Texture2D image to the Python server.
 /// 2. Receive a GLB model URL, voxel data, or both.
 /// 3. Display the result in the Unity scene.
+/// 4. Submit Edits posts the edited voxels as a new revision and rebuilds from the response.
 ///
 /// Voxel mode:
-/// - The server returns voxel coordinates in a 64x64x64 grid.
-/// - Unity creates one cube or prefab per voxel.
+/// - The server returns voxel coordinates (with stable ids) in a 64x64x64 grid.
+/// - Unity creates one cube or prefab per voxel; x/y/z always hold the voxel's current cell.
 /// - Change Voxel Size during Play Mode to resize and reposition existing voxels in real time.
 /// </summary>
 [DisallowMultipleComponent]
@@ -65,9 +66,17 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     public int GeneratedVoxelCount { get; private set; }
     public int VoxelDrawBatchCount => voxelBatch != null ? voxelBatch.ChunkCount : 0;
     public string StatusMessage { get; private set; } = "Ready. Select Get 3D Model.";
+    public Transform VoxelRoot => voxelRoot != null ? voxelRoot.transform : null;
+    public int GridSize => currentGridSize;
+    public float VoxelSize => voxelSize;
+    public int MaxVoxels => maxVoxels;
+    public bool CanSubmitEdits => !isRunning && voxelRoot != null && !string.IsNullOrEmpty(revisionsUrl);
     private int currentGridSize = 64;
     private float appliedVoxelSize = -1f;
     private QuestVoxelBatchRenderer voxelBatch;
+    private string revisionsUrl;
+    private int currentRevision;
+    private bool alignModelToVoxels;
 
     private readonly Dictionary<string, Material> materialCache = new Dictionary<string, Material>();
 
@@ -102,6 +111,10 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         public string response_mode;
         public string model_url;
         public string model_error;
+        public string generation_id;
+        public int revision;
+        public string model_space;
+        public string revisions_url;
         public int grid_size;
         public int voxel_count;
         public VoxelData[] voxels;
@@ -110,11 +123,27 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     [System.Serializable]
     private class VoxelData
     {
+        public int id;
         public int x;
         public int y;
         public int z;
         public string type;
         public string color;
+    }
+
+    [System.Serializable]
+    private class RevisionRequest
+    {
+        public int base_revision;
+        public int max_voxels;
+        public EditedVoxel[] voxels;
+    }
+
+    [System.Serializable]
+    private class EditedVoxel
+    {
+        public int id, x, y, z;
+        public string type, color;
     }
 
     private void Start()
@@ -133,6 +162,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         if (voxelRoot != null && !Mathf.Approximately(voxelSize, appliedVoxelSize))
         {
             ApplyVoxelSizeToExistingVoxels();
+            ApplyModelAlignment();
         }
     }
 
@@ -164,28 +194,43 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             return;
         }
 
-        StartCoroutine(RunGenerationSafely());
+        StartCoroutine(RunGenerationSafely(GenerateRoutine()));
     }
+
+    // Sends every active in-grid voxel; deleted voxels are already destroyed and
+    // ids missing from the list are removed by the server.
+    [ContextMenu("Submit Edits")]
+    public void SubmitEdits()
+    {
+        if (!Application.isPlaying || !CanSubmitEdits)
+        {
+            Debug.LogWarning("[ModelGenerationServerTest] Nothing to submit, or a request is already running.");
+            return;
+        }
+        StartCoroutine(RunGenerationSafely(SubmitEditsRoutine()));
+    }
+
+    public void ReportStatus(string message) => StatusMessage = message;
 
     // Traverse nested enumerators so an exception in download, parsing or object creation
     // always restores the button and disposes the request. Yield instructions still run in Unity.
-    private IEnumerator RunGenerationSafely()
+    private IEnumerator RunGenerationSafely(IEnumerator routine)
     {
         isRunning = true;
         var routines = new Stack<IEnumerator>();
-        routines.Push(GenerateRoutine());
+        routines.Push(routine);
         try
         {
             while (routines.Count > 0)
             {
-                IEnumerator routine = routines.Peek();
+                IEnumerator top = routines.Peek();
                 bool more = false;
                 object current = null;
                 System.Exception failure = null;
                 try
                 {
-                    more = routine.MoveNext();
-                    if (more) current = routine.Current;
+                    more = top.MoveNext();
+                    if (more) current = top.Current;
                 }
                 catch (System.Exception exception) { failure = exception; }
                 if (failure != null)
@@ -260,32 +305,85 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             yield break;
         }
 
-        ServerResponse response = JsonUtility.FromJson<ServerResponse>(request.downloadHandler.text);
-        if (response == null || response.status != "done")
+        yield return ApplyServerResponse(ParseServerResponse(request.downloadHandler.text));
+    }
+
+    private IEnumerator SubmitEditsRoutine()
+    {
+        var edited = new List<EditedVoxel>();
+        int outside = 0;
+        foreach (GeneratedVoxel voxel in voxelRoot.GetComponentsInChildren<GeneratedVoxel>())
         {
-            Debug.LogError("[ModelGenerationServerTest] Invalid server response:");
+            if (voxel.IsOutsideGrid) { outside++; continue; }
+            edited.Add(new EditedVoxel { id = voxel.id, x = voxel.x, y = voxel.y, z = voxel.z, type = voxel.voxelType, color = voxel.color });
+        }
+        var body = new RevisionRequest { base_revision = currentRevision, max_voxels = maxVoxels, voxels = edited.ToArray() };
+
+        Debug.Log($"[ModelGenerationServerTest] Submitting {edited.Count} voxels to: {revisionsUrl}");
+        StatusMessage = "Submitting edits. Please wait...";
+        UnityWebRequest request = UnityWebRequest.Post(revisionsUrl, JsonUtility.ToJson(body), "application/json");
+        activeRequest = request;
+        request.timeout = requestTimeoutSeconds;
+        yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            Debug.LogError("[ModelGenerationServerTest] Submit failed: " + request.error);
             Debug.LogError(request.downloadHandler.text);
+            StatusMessage = "Cannot reach generation server. Start the Python server and retry.";
+            yield break;
+        }
+
+        ServerResponse response = ParseServerResponse(request.downloadHandler.text);
+        yield return ApplyServerResponse(response);
+        if (response == null || response.status != "done" || response.voxels == null || response.voxels.Length == 0) yield break;
+        StatusMessage = $"Revision {currentRevision}: {GeneratedVoxelCount} voxels ready." +
+            (outside > 0 ? $" {outside} voxels outside the grid were removed." : "");
+    }
+
+    private ServerResponse ParseServerResponse(string json)
+    {
+        ServerResponse response = JsonUtility.FromJson<ServerResponse>(json);
+        if (response == null || response.status != "done") Debug.LogError("[ModelGenerationServerTest] Server response: " + json);
+        return response;
+    }
+
+    // An error response leaves the current voxels and GLB untouched, so edits can be resubmitted.
+    private IEnumerator ApplyServerResponse(ServerResponse r)
+    {
+        if (r != null && r.status == "error")
+        {
+            StatusMessage = string.IsNullOrEmpty(r.error) ? "Server error. Check Console and retry." : r.error;
+            yield break;
+        }
+        if (r == null || r.status != "done")
+        {
             StatusMessage = "Invalid server response. Check Console and retry.";
             yield break;
         }
 
+        currentGridSize = r.grid_size > 0 ? r.grid_size : 64;
+        revisionsUrl = r.revisions_url;
+        currentRevision = r.revision;
+        alignModelToVoxels = r.model_space == "trellis_unit_cube";
+
         if (ShouldLoadModel())
         {
-            if (!string.IsNullOrEmpty(response.model_url))
+            if (!string.IsNullOrEmpty(r.model_url))
             {
-                yield return LoadModelRoutine(response.model_url);
+                yield return LoadModelRoutine(r.model_url);
             }
             else
             {
-                Debug.LogWarning("[ModelGenerationServerTest] No model_url returned. " + response.model_error);
+                Debug.LogWarning("[ModelGenerationServerTest] No model_url returned. " + r.model_error);
             }
         }
 
         if (ShouldBuildVoxels())
         {
-            if (response.voxels != null && response.voxels.Length > 0)
+            if (r.voxels != null && r.voxels.Length > 0)
             {
-                yield return BuildVoxelsRoutine(response);
+                yield return BuildVoxelsRoutine(r);
             }
             else
             {
@@ -293,7 +391,6 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
                 StatusMessage = "Server returned no voxels. Check the server output mode.";
             }
         }
-
     }
 
     private bool ShouldLoadModel()
@@ -356,6 +453,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
         modelRoot = new GameObject("Generated_GLB_Model");
         PlaceRoot(modelRoot, modelParent, modelPosition, modelScale);
+        ApplyModelAlignment();
 
         GltfImport gltf = new GltfImport();
 
@@ -415,24 +513,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         {
             VoxelData voxel = response.voxels[i];
             if (voxel == null) continue;
-            GameObject voxelObject = CreateVoxelObject(voxel);
-            voxelObject.transform.SetParent(voxelRoot.transform, false);
-
-            GeneratedVoxel generatedVoxel = voxelObject.AddComponent<GeneratedVoxel>();
-            generatedVoxel.Initialize(voxel.x, voxel.y, voxel.z, voxel.type, currentGridSize, voxelSize, voxelRoot.transform);
-            ApplyVoxelTransform(generatedVoxel);
-            if (voxelBatch != null)
-            {
-                Color color = Color.white;
-                if (!string.IsNullOrEmpty(voxel.color)) ColorUtility.TryParseHtmlString(voxel.color, out color);
-                voxelBatch.Add(generatedVoxel, color);
-            }
-
-            if (makeVoxelsGrabbableForXR)
-            {
-                MakeVoxelGrabbable(voxelObject);
-            }
-            GeneratedVoxelCount++;
+            CreateVoxel(voxel.id, new Vector3Int(voxel.x, voxel.y, voxel.z), voxel.type, voxel.color);
 
             // Avoid freezing the Unity Editor when many voxels are created.
             if (slice.Elapsed.TotalMilliseconds >= 3 || i % 128 == 127)
@@ -450,17 +531,62 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         StatusMessage = $"{GeneratedVoxelCount:N0} voxels ready. Hold Trigger to drag one.";
     }
 
-    private GameObject CreateVoxelObject(VoxelData voxel)
+    // Returns null when Max Voxels is reached. Keeps GeneratedVoxelCount and the draw batches in sync.
+    public GeneratedVoxel CreateVoxel(int id, Vector3Int cell, string type, string color)
+    {
+        if (voxelRoot == null || GeneratedVoxelCount >= maxVoxels) return null;
+        GameObject voxelObject = CreateVoxelObject(cell, type, color);
+        voxelObject.transform.SetParent(voxelRoot.transform, false);
+
+        GeneratedVoxel generatedVoxel = voxelObject.AddComponent<GeneratedVoxel>();
+        generatedVoxel.Initialize(id, cell.x, cell.y, cell.z, type, color, currentGridSize, voxelSize, voxelRoot.transform);
+        ApplyVoxelTransform(generatedVoxel);
+        if (voxelBatch != null)
+        {
+            Color displayColor = Color.white;
+            if (!string.IsNullOrEmpty(color)) ColorUtility.TryParseHtmlString(color, out displayColor);
+            voxelBatch.Add(generatedVoxel, displayColor);
+        }
+
+        if (makeVoxelsGrabbableForXR)
+        {
+            MakeVoxelGrabbable(voxelObject);
+        }
+        GeneratedVoxelCount++;
+        return generatedVoxel;
+    }
+
+    // Deactivate first so the draw batch skips the voxel this frame, before the deferred Destroy.
+    public void DestroyVoxel(GeneratedVoxel voxel)
+    {
+        if (voxel == null || voxelRoot == null || voxel.transform.parent != voxelRoot.transform || !voxel.gameObject.activeSelf) return;
+        voxel.gameObject.SetActive(false);
+        voxel.NotifyRenderChanged();
+        DestroyGeneratedObject(voxel.gameObject);
+        GeneratedVoxelCount--;
+    }
+
+    public void MoveVoxelToCell(GeneratedVoxel voxel, Vector3Int cell)
+    {
+        if (voxel == null) return;
+        voxel.x = cell.x;
+        voxel.y = cell.y;
+        voxel.z = cell.z;
+        voxel.transform.localRotation = Quaternion.identity;
+        ApplyVoxelTransform(voxel);
+    }
+
+    private GameObject CreateVoxelObject(Vector3Int cell, string type, string color)
     {
         GameObject obj = voxelBatch != null ? new GameObject() : voxelPrefab != null
             ? Instantiate(voxelPrefab)
             : GameObject.CreatePrimitive(voxelShape);
 
-        obj.name = $"Voxel_{voxel.x}_{voxel.y}_{voxel.z}_{voxel.type}";
+        obj.name = $"Voxel_{cell.x}_{cell.y}_{cell.z}_{type}";
 
         foreach (Renderer renderer in obj.GetComponentsInChildren<Renderer>())
         {
-            renderer.sharedMaterial = GetMaterial(voxel.color);
+            renderer.sharedMaterial = GetMaterial(color);
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
         }
@@ -491,18 +617,19 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
     private void ApplyVoxelTransform(GeneratedVoxel voxel)
     {
-        // Grid spacing equals cube scale.
-        // Neighboring coordinates such as x=20 and x=21 touch like Minecraft blocks.
-        float center = (currentGridSize - 1) * 0.5f;
-
-        voxel.transform.localPosition = new Vector3(
-            (voxel.x - center) * voxelSize,
-            voxel.y * voxelSize,
-            (voxel.z - center) * voxelSize
-        );
-
+        // Grid spacing equals cube scale. Placing from the current cell keeps edits when Voxel Size changes.
+        voxel.transform.localPosition = GeneratedVoxel.GridToLocal(voxel.Cell, currentGridSize, voxelSize);
         voxel.transform.localScale = Vector3.one * voxelSize;
         voxel.NotifyRenderChanged();
+    }
+
+    // A trellis_unit_cube GLB spans [-0.5, 0.5]^3 around the grid centre: scale it by G*s and
+    // lift it by (G-1)/2*s so it overlaps the voxels, whose lowest layer sits at y=0.
+    private void ApplyModelAlignment()
+    {
+        if (modelRoot == null || !alignModelToVoxels) return;
+        modelRoot.transform.localPosition = voxelRootPosition + Vector3.up * ((currentGridSize - 1) * 0.5f * voxelSize);
+        modelRoot.transform.localScale = voxelRootScale * (currentGridSize * voxelSize);
     }
 
     private Material GetMaterial(string htmlColor)
@@ -586,8 +713,8 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 }
 
 /// <summary>
-/// Stores one generated voxel's original grid coordinate.
-/// Use GetCurrentGridPosition after a user moves a voxel in VR.
+/// Stores one generated voxel's server id, appearance and current grid cell.
+/// x/y/z may leave the grid while editing; such voxels are excluded on submit.
 /// </summary>
 public class GeneratedVoxel : MonoBehaviour
 {
@@ -606,48 +733,46 @@ public class GeneratedVoxel : MonoBehaviour
     private void OnEnable() => NotifyRenderChanged();
     private void OnDisable() => NotifyRenderChanged();
     private void OnDestroy() => NotifyRenderChanged();
+    public int id;
     public int x;
     public int y;
     public int z;
     public string voxelType;
+    public string color;
+    public Vector3Int Cell => new Vector3Int(x, y, z);
+    public bool IsOutsideGrid => x < 0 || y < 0 || z < 0 || x >= gridSize || y >= gridSize || z >= gridSize;
 
     private int gridSize = 64;
-    private float voxelSize = 0.05f;
-    private Transform voxelRoot;
 
-    public void Initialize(int gridX, int gridY, int gridZ, string type, int size, float unityVoxelSize, Transform root)
+    public void Initialize(int voxelId, int gridX, int gridY, int gridZ, string type, string htmlColor, int size, float unityVoxelSize, Transform root)
     {
+        id = voxelId;
         x = gridX;
         y = gridY;
         z = gridZ;
         voxelType = type;
+        color = htmlColor;
         UpdateRuntimeData(size, unityVoxelSize, root);
     }
 
+    // Voxel size and root are owned by the generator; only the grid size is needed here.
     public void UpdateRuntimeData(int size, float unityVoxelSize, Transform root)
     {
         gridSize = size;
-        voxelSize = unityVoxelSize;
-        voxelRoot = root;
     }
 
-    public Vector3Int GetCurrentGridPosition()
+    // Grid cell to voxel-root local position. Neighbouring cells touch like Minecraft blocks.
+    public static Vector3 GridToLocal(Vector3Int cell, int gridSize, float voxelSize)
     {
-        // Convert the current Unity position back into a voxel grid coordinate.
-        Vector3 localPosition = voxelRoot != null
-            ? voxelRoot.InverseTransformPoint(transform.position)
-            : transform.localPosition;
-
         float center = (gridSize - 1) * 0.5f;
+        return new Vector3((cell.x - center) * voxelSize, cell.y * voxelSize, (cell.z - center) * voxelSize);
+    }
 
-        int gx = Mathf.RoundToInt(localPosition.x / voxelSize + center);
-        int gy = Mathf.RoundToInt(localPosition.y / voxelSize);
-        int gz = Mathf.RoundToInt(localPosition.z / voxelSize + center);
-
-        return new Vector3Int(
-            Mathf.Clamp(gx, 0, gridSize - 1),
-            Mathf.Clamp(gy, 0, gridSize - 1),
-            Mathf.Clamp(gz, 0, gridSize - 1)
-        );
+    // Inverse of GridToLocal, rounded to the nearest cell and not clamped to the grid.
+    public static Vector3Int LocalToCell(Vector3 local, int gridSize, float voxelSize)
+    {
+        float center = (gridSize - 1) * 0.5f;
+        return new Vector3Int(Mathf.RoundToInt(local.x / voxelSize + center), Mathf.RoundToInt(local.y / voxelSize),
+            Mathf.RoundToInt(local.z / voxelSize + center));
     }
 }

@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
@@ -13,6 +14,7 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
     private ModelGenerationServerTest_Voxel generator;
     private Transform workspace;
     private Button generateButton;
+    private Button submitButton;
     private Text statusText;
     private Text buttonLabel;
     private Font font;
@@ -83,6 +85,7 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         if (generateButton == null) return;
         generateButton.interactable = !generator.IsRunning;
         buttonLabel.text = generator.IsRunning ? "Generating..." : "Get 3D Model";
+        submitButton.interactable = generator.CanSubmitEdits;
         statusText.text = generator.StatusMessage;
         if (Time.unscaledTime >= nextControllerStatusUpdate)
         {
@@ -145,33 +148,40 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         var canvas = canvasObject.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
         if (cameraRig != null) canvas.worldCamera = cameraRig.centerEyeAnchor.GetComponent<Camera>();
-        canvasObject.GetComponent<RectTransform>().sizeDelta = new Vector2(540f, 400f);
+        canvasObject.GetComponent<RectTransform>().sizeDelta = new Vector2(540f, 480f);
 
         var background = new GameObject("Background", typeof(RectTransform), typeof(Image));
         background.transform.SetParent(canvasObject.transform, false);
         Stretch(background.GetComponent<RectTransform>());
         background.GetComponent<Image>().color = new Color(0.035f, 0.055f, 0.085f, 0.97f);
         background.GetComponent<Image>().raycastTarget = false;
-        CreateText(canvasObject.transform, "Title", "3D MODEL WORKSPACE", new Vector2(0f, 155f), new Vector2(500f, 55f), 30);
-        CreateText(canvasObject.transform, "Instructions", "Point at one voxel and hold Trigger.\nMove your controller; release to place.",
-            new Vector2(0f, 75f), new Vector2(500f, 85f), 24);
+        CreateText(canvasObject.transform, "Title", "3D MODEL WORKSPACE", new Vector2(0f, 195f), new Vector2(500f, 55f), 30);
+        CreateText(canvasObject.transform, "Instructions", "Grip: select   A/X: clear   Trigger: use mode\nMove/Fill/Erase drag the selection. Add places voxels.",
+            new Vector2(0f, 125f), new Vector2(520f, 70f), 20);
 
-        var buttonObject = new GameObject("Get 3D Model", typeof(RectTransform), typeof(Image), typeof(Button));
+        // The row at y=45 is reserved for the edit-mode buttons.
+        (generateButton, buttonLabel) = CreateButton("Get 3D Model", "Get 3D Model", new Vector2(-120f, -45f), new Vector2(220f, 80f), generator.UploadImageAndGenerate);
+        submitButton = CreateButton("Submit Edits", "Submit Edits", new Vector2(120f, -45f), new Vector2(220f, 80f), generator.SubmitEdits).Item1;
+        statusText = CreateText(canvasObject.transform, "Status", "Ready", new Vector2(0f, -140f), new Vector2(490f, 110f), 22);
+        controllerStatus = CreateText(canvasObject.transform, "Controller Status", "Waiting for controllers", new Vector2(0f, -207f), new Vector2(525f, 45f), 18);
+    }
+
+    private (Button, Text) CreateButton(string name, string label, Vector2 position, Vector2 size, UnityAction onClick)
+    {
+        var buttonObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
         buttonObject.layer = 5;
-        buttonObject.transform.SetParent(canvasObject.transform, false);
+        buttonObject.transform.SetParent(menu, false);
         var rect = buttonObject.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(460f, 80f);
-        rect.anchoredPosition = new Vector2(0f, -15f);
-        generateButton = buttonObject.GetComponent<Button>();
-        generateButton.targetGraphic = buttonObject.GetComponent<Image>();
-        generateButton.transition = Selectable.Transition.None;
-        generateButton.onClick.AddListener(generator.UploadImageAndGenerate);
+        rect.sizeDelta = size;
+        rect.anchoredPosition = position;
+        var button = buttonObject.GetComponent<Button>();
+        button.targetGraphic = buttonObject.GetComponent<Image>();
+        button.transition = Selectable.Transition.None;
+        button.onClick.AddListener(onClick);
         var collider = buttonObject.AddComponent<BoxCollider>();
-        collider.size = new Vector3(460f, 80f, 12f);
+        collider.size = new Vector3(size.x, size.y, 12f);
         buttonObject.AddComponent<QuestRayButton>();
-        buttonLabel = CreateText(buttonObject.transform, "Label", "Get 3D Model", Vector2.zero, new Vector2(450f, 75f), 30);
-        statusText = CreateText(canvasObject.transform, "Status", "Ready", new Vector2(0f, -120f), new Vector2(490f, 110f), 22);
-        controllerStatus = CreateText(canvasObject.transform, "Controller Status", "Waiting for controllers", new Vector2(0f, -177f), new Vector2(525f, 45f), 18);
+        return (button, CreateText(buttonObject.transform, "Label", label, Vector2.zero, size - new Vector2(10f, 5f), 30));
     }
 
     private Text CreateText(Transform parent, string name, string value, Vector2 position, Vector2 size, int fontSize)
