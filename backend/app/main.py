@@ -36,15 +36,11 @@ def _build_generator():
     if kind == "fixture":
         return FixtureGenerator(MODEL_DIR)
     if kind == "trellis2":
-        root = os.environ.get("TRELLIS2_ROOT")
-        if not root:
-            raise RuntimeError("VRCRAFTER_GENERATOR=trellis2 requires TRELLIS2_ROOT (the TRELLIS.2 checkout).")
         low_vram = os.environ.get("TRELLIS2_LOW_VRAM", "0")
         if low_vram not in {"0", "1"}:
             raise RuntimeError(f"TRELLIS2_LOW_VRAM must be 0 or 1, got {low_vram!r}")
         generator = TrellisGenerator(
             os.environ.get("TRELLIS2_MODEL", "microsoft/TRELLIS.2-4B"),
-            root,
             device=os.environ.get("TRELLIS2_DEVICE", "cuda"),
             low_vram=low_vram == "1",
         )

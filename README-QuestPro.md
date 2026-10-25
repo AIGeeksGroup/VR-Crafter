@@ -1,6 +1,6 @@
 # Meta Quest Pro：Unity VR 体素交互
 
-已配置项目：`F:\GitHub\Unity\3dGenerationVR`
+工程：本仓库根目录（用 Unity 6000.3.15f1 打开）
 
 使用场景：`Assets/Scenes/SampleScene.unity`
 

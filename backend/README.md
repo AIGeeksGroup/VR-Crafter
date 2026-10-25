@@ -42,15 +42,19 @@ TRELLIS.2 hard-codes `.cuda()` in the DINOv3 extractor and BiRefNet, so other
 ```bash
 conda activate trellis2
 cd backend
-CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 \
-HF_HOME=/mnt/zicheng_ssd/huggingface_cache \
-VRCRAFTER_GENERATOR=trellis2 TRELLIS2_ROOT=/mnt/zicheng_ssd/JT_ssd/TRELLIS.2 \
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 VRCRAFTER_GENERATOR=trellis2 \
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
+Set `HF_HOME` as well if your Hugging Face cache is not in the default location.
+
+The TRELLIS.2 code is vendored in [third_party/TRELLIS.2](third_party/TRELLIS.2)
+(see [third_party/README.md](third_party/README.md)); the backend imports only that
+copy and refuses to start if `trellis2` resolves anywhere else.
+
 Use `--host 0.0.0.0` instead if Unity connects over the LAN (deployment option
 A in [../README-QuestPro.md](../README-QuestPro.md)); the port then has no
-authentication. The model is loaded at startup, so a missing `TRELLIS2_ROOT`
+authentication. The model is loaded at startup, so a missing vendored copy
 or o-voxel stops the server immediately. Check `/status` afterwards:
 `generator` must be `trellis2`.
 
@@ -60,7 +64,6 @@ or o-voxel stops the server immediately. Check `/status` afterwards:
 |---|---|---|
 | `VRCRAFTER_GENERATOR` | `fixture` | `fixture` or `trellis2`. Any other value stops startup. |
 | `VRCRAFTER_DATA_DIR` | `backend/data/generations` | Where generations are stored. |
-| `TRELLIS2_ROOT` | none (required for `trellis2`) | Path of the TRELLIS.2 checkout (contains `trellis2/`). |
 | `TRELLIS2_MODEL` | `microsoft/TRELLIS.2-4B` | Hugging Face id, or a local directory with a `pipeline.json`. |
 | `TRELLIS2_DEVICE` | `cuda` | Keep at `cuda`; choose the card with `CUDA_VISIBLE_DEVICES`. |
 | `TRELLIS2_LOW_VRAM` | `0` | `0` or `1`; anything else stops startup. |
@@ -79,7 +82,7 @@ measured:
 
    ```bash
    conda activate trellis2
-   cd /mnt/zicheng_ssd/JT_ssd/TRELLIS.2 && bash setup.sh --o-voxel
+   cd backend/third_party/TRELLIS.2 && bash setup.sh --o-voxel   # builds the vendored o-voxel source
    python -c "import o_voxel.postprocess, cumesh, nvdiffrast, flex_gemm, trimesh; print('ok')"
    ```
 
@@ -89,7 +92,7 @@ measured:
 3. Download the weights (the six checkpoints plus the two gated models):
 
    ```bash
-   export HF_HOME=/mnt/zicheng_ssd/huggingface_cache && hf auth login
+   hf auth login   # set HF_HOME first if your cache is not in the default location
    hf download microsoft/TRELLIS.2-4B --include "pipeline.json" "ckpts/ss_flow_img_dit_1_3B_64_bf16.*" \
      "ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.*" "ckpts/shape_dec_next_dc_f16c32_fp16.*" \
      "ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.*" "ckpts/tex_dec_next_dc_f16c32_fp16.*"
@@ -105,12 +108,9 @@ measured:
 
    ```bash
    cd backend
-   CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 VRCRAFTER_GPU_TESTS=1 \
-   HF_HOME=/mnt/zicheng_ssd/huggingface_cache TRELLIS2_ROOT=/mnt/zicheng_ssd/JT_ssd/TRELLIS.2 \
-     python -m pytest tests -v
-   CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 HF_HOME=/mnt/zicheng_ssd/huggingface_cache \
-   TRELLIS2_ROOT=/mnt/zicheng_ssd/JT_ssd/TRELLIS.2 \
-     python scripts/measure_trellis.py examples/*.png --seed 42
+   CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 VRCRAFTER_GPU_TESTS=1 python -m pytest tests -v
+   CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 \
+     python scripts/measure_trellis.py examples/*.png third_party/TRELLIS.2/assets/example_image/*.webp --seed 42
    ```
 
    `measure_trellis.py` prints voxel count, stage times, GLB size and peak VRAM

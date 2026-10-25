@@ -2,10 +2,11 @@
 
 Run from backend/ in the conda env `trellis2`:
 
-    CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 TRELLIS2_ROOT=/mnt/zicheng_ssd/JT_ssd/TRELLIS.2 \
+    CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1 \
       python scripts/measure_trellis.py IMAGE... [--seed 42] [--out DIR]
 
-Reads TRELLIS2_ROOT (required), TRELLIS2_MODEL, TRELLIS2_DEVICE and TRELLIS2_LOW_VRAM like the server.
+Uses the vendored TRELLIS.2 in third_party/ and reads TRELLIS2_MODEL, TRELLIS2_DEVICE and
+TRELLIS2_LOW_VRAM like the server. Example images: third_party/TRELLIS.2/assets/example_image/.
 Prints one line per image: name  N  t_structure  t_mesh  glb_MB  peak_VRAM_GB
 (times in seconds; peak VRAM is torch.cuda.max_memory_reserved for that image).
 """
@@ -29,12 +30,8 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None, help="keep GLBs here (default: temp dir)")
     args = parser.parse_args()
 
-    root = os.environ.get("TRELLIS2_ROOT")
-    if not root:
-        parser.error("set TRELLIS2_ROOT to the TRELLIS.2 checkout")
     gen = TrellisGenerator(
         os.environ.get("TRELLIS2_MODEL", "microsoft/TRELLIS.2-4B"),
-        root,
         device=os.environ.get("TRELLIS2_DEVICE", "cuda"),
         low_vram=os.environ.get("TRELLIS2_LOW_VRAM", "0") == "1",
     )

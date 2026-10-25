@@ -1,7 +1,7 @@
 """TrellisGenerator tests.
 
 Only test_real_structure_and_mesh needs the GPU, the TRELLIS.2 weights and the conda env
-`trellis2`; it is skipped unless VRCRAFTER_GPU_TESTS=1 (and then also needs TRELLIS2_ROOT).
+`trellis2`; it is skipped unless VRCRAFTER_GPU_TESTS=1.
 Everything else runs in the plain backend venv without torch.
 """
 
@@ -13,15 +13,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+import app.trellis_pipeline as trellis_pipeline
 from app.generators import GenerationError
 from app.main import BACKEND_DIR, app
-from app.trellis_pipeline import TrellisGenerator, load_image
+from app.trellis_pipeline import TRELLIS2_ROOT, TrellisGenerator, load_image
 
 IMAGE = BACKEND_DIR / "examples" / "upload_square.png"
 
 gpu = pytest.mark.skipif(
     os.environ.get("VRCRAFTER_GPU_TESTS") != "1",
-    reason="real TRELLIS.2 run; set VRCRAFTER_GPU_TESTS=1 and TRELLIS2_ROOT",
+    reason="real TRELLIS.2 run; set VRCRAFTER_GPU_TESTS=1",
 )
 
 
@@ -42,12 +43,29 @@ def test_trellis_pipeline_import_is_light():
     assert subprocess.run([sys.executable, "-c", code], cwd=BACKEND_DIR).returncode == 0
 
 
-def test_load_rejects_root_without_trellis2(tmp_path):
-    gen = TrellisGenerator("microsoft/TRELLIS.2-4B", str(tmp_path))
+def test_trellis2_is_vendored_in_repo():
+    assert TRELLIS2_ROOT == BACKEND_DIR / "third_party" / "TRELLIS.2"
+    for rel in ("trellis2/__init__.py", "trellis2/pipelines/trellis2_image_to_3d.py", "o-voxel/setup.py",
+                "o-voxel/o_voxel/postprocess.py", "o-voxel/third_party/eigen/Eigen/Core", "LICENSE"):
+        assert (TRELLIS2_ROOT / rel).is_file(), rel
+
+
+def test_load_rejects_missing_vendored_copy(monkeypatch, tmp_path):
+    monkeypatch.setattr(trellis_pipeline, "TRELLIS2_ROOT", tmp_path)
+    gen = TrellisGenerator("microsoft/TRELLIS.2-4B")
     assert gen.source == "trellis2" and gen.model_space == "trellis_unit_cube"
-    with pytest.raises(RuntimeError, match="trellis2 package"):
+    with pytest.raises(RuntimeError, match="vendored TRELLIS.2 code is missing"):
         gen.load()
     assert str(tmp_path) not in sys.path
+
+
+def test_load_rejects_trellis2_from_outside_repo(monkeypatch):
+    foreign = type(sys)("trellis2")
+    foreign.__file__ = "/elsewhere/TRELLIS.2/trellis2/__init__.py"
+    monkeypatch.setitem(sys.modules, "trellis2", foreign)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    with pytest.raises(RuntimeError, match="not the vendored copy"):
+        TrellisGenerator("microsoft/TRELLIS.2-4B").load()
 
 
 class RecordingGenerator:
@@ -55,8 +73,8 @@ class RecordingGenerator:
     model_space = "trellis_unit_cube"
     instances = []
 
-    def __init__(self, model, trellis_root, device="cuda", low_vram=False):
-        self.args = (model, trellis_root, device, low_vram)
+    def __init__(self, model, device="cuda", low_vram=False):
+        self.args = (model, device, low_vram)
         self.loaded = False
         RecordingGenerator.instances.append(self)
 
@@ -68,28 +86,20 @@ class RecordingGenerator:
 def trellis_env(monkeypatch, tmp_path):
     monkeypatch.setenv("VRCRAFTER_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("VRCRAFTER_GENERATOR", "trellis2")
-    for name in ("TRELLIS2_ROOT", "TRELLIS2_MODEL", "TRELLIS2_DEVICE", "TRELLIS2_LOW_VRAM"):
+    for name in ("TRELLIS2_MODEL", "TRELLIS2_DEVICE", "TRELLIS2_LOW_VRAM"):
         monkeypatch.delenv(name, raising=False)
     RecordingGenerator.instances = []
     monkeypatch.setattr(main, "TrellisGenerator", RecordingGenerator)
     return monkeypatch
 
 
-def test_trellis2_without_root_fails_startup(trellis_env):
-    with pytest.raises(RuntimeError, match="TRELLIS2_ROOT"):
-        with TestClient(app):
-            pass
-    assert RecordingGenerator.instances == []
-
-
 @pytest.mark.parametrize("env, expected", [
-    ({}, ("microsoft/TRELLIS.2-4B", "/opt/TRELLIS.2", "cuda", False)),
+    ({}, ("microsoft/TRELLIS.2-4B", "cuda", False)),
     ({"TRELLIS2_MODEL": "/local/cfg", "TRELLIS2_DEVICE": "cuda:1", "TRELLIS2_LOW_VRAM": "1"},
-     ("/local/cfg", "/opt/TRELLIS.2", "cuda:1", True)),
-    ({"TRELLIS2_LOW_VRAM": "0"}, ("microsoft/TRELLIS.2-4B", "/opt/TRELLIS.2", "cuda", False)),
+     ("/local/cfg", "cuda:1", True)),
+    ({"TRELLIS2_LOW_VRAM": "0"}, ("microsoft/TRELLIS.2-4B", "cuda", False)),
 ])
 def test_trellis2_env_builds_and_loads_generator(trellis_env, env, expected):
-    trellis_env.setenv("TRELLIS2_ROOT", "/opt/TRELLIS.2")
     for name, value in env.items():
         trellis_env.setenv(name, value)
     with TestClient(app) as c:
@@ -99,7 +109,6 @@ def test_trellis2_env_builds_and_loads_generator(trellis_env, env, expected):
 
 
 def test_trellis2_bad_low_vram_fails_startup(trellis_env):
-    trellis_env.setenv("TRELLIS2_ROOT", "/opt/TRELLIS.2")
     trellis_env.setenv("TRELLIS2_LOW_VRAM", "true")
     with pytest.raises(RuntimeError, match="TRELLIS2_LOW_VRAM"):
         with TestClient(app):
@@ -108,12 +117,8 @@ def test_trellis2_bad_low_vram_fails_startup(trellis_env):
 
 @pytest.fixture(scope="module")
 def real_gen():
-    root = os.environ.get("TRELLIS2_ROOT")
-    if not root:
-        pytest.fail("VRCRAFTER_GPU_TESTS=1 needs TRELLIS2_ROOT")
     gen = TrellisGenerator(
         os.environ.get("TRELLIS2_MODEL", "microsoft/TRELLIS.2-4B"),
-        root,
         device=os.environ.get("TRELLIS2_DEVICE", "cuda"),
         low_vram=os.environ.get("TRELLIS2_LOW_VRAM", "0") == "1",
     )

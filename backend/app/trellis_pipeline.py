@@ -26,6 +26,8 @@ COND_RES_STRUCTURE = 512
 COND_RES_SLAT = 1024
 SLAT_RES = 1024
 NVDIFFRAST_FACE_LIMIT = 16777216
+# The official TRELLIS.2 code vendored into this repository; it is the only copy ever imported.
+TRELLIS2_ROOT = Path(__file__).resolve().parent.parent / "third_party" / "TRELLIS.2"
 
 
 def load_image(path: Path):
@@ -44,21 +46,26 @@ class TrellisGenerator:
     source = "trellis2"
     model_space = "trellis_unit_cube"
 
-    def __init__(self, model: str, trellis_root: str, device: str = "cuda", low_vram: bool = False) -> None:
+    def __init__(self, model: str, device: str = "cuda", low_vram: bool = False) -> None:
         self.model = model
-        self.trellis_root = trellis_root
         self.device = device
         self.low_vram = low_vram
         self._pipe = None
 
     def load(self) -> None:
-        root = str(Path(self.trellis_root).resolve())
-        if not (Path(root) / "trellis2" / "__init__.py").is_file():
-            raise RuntimeError(f"TRELLIS2_ROOT={self.trellis_root!r} does not contain the trellis2 package.")
-        if root not in sys.path:
-            sys.path.append(root)  # appended, so it never shadows the backend's own modules
+        root = TRELLIS2_ROOT
+        if not (root / "trellis2" / "__init__.py").is_file():
+            raise RuntimeError(f"The vendored TRELLIS.2 code is missing: {root} has no trellis2 package.")
+        if str(root) not in sys.path:
+            sys.path.append(str(root))  # appended, so it never shadows the backend's own modules
         # Same allocator setting as TRELLIS.2's app.py/example.py; only effective before torch loads.
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        import trellis2
+
+        imported_from = Path(trellis2.__file__).resolve()
+        if not imported_from.is_relative_to(root):
+            raise RuntimeError(f"trellis2 was imported from {imported_from.parent}, not the vendored copy in {root}.")
 
         import torch
         import o_voxel.postprocess  # noqa: F401  (fail at startup rather than on the first mesh)

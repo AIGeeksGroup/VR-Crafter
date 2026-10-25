@@ -8,3 +8,7 @@ venv/
 data/received_images/*
 !data/received_images/.gitkeep
 data/generations/
+# Local build output of the vendored o-voxel extension (pip install -e third_party/TRELLIS.2/o-voxel)
+third_party/TRELLIS.2/o-voxel/build/
+third_party/TRELLIS.2/o-voxel/*.egg-info/
+third_party/TRELLIS.2/o-voxel/o_voxel/*.so
