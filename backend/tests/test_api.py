@@ -28,6 +28,8 @@ class FakeGenerator:
         self.delay = delay
         self.mesh_calls = []
         self.seeds = []
+        self.mesh_seeds = []
+        self.skip_glb = False
         self.max_active = 0
         self._active = 0
         self._guard = threading.Lock()
@@ -57,10 +59,12 @@ class FakeGenerator:
         self._enter()
         try:
             self.mesh_calls.append(list(unity_coords))
+            self.mesh_seeds.append(seed)
             if self.mesh_error is not None:
                 err, self.mesh_error = self.mesh_error, None
                 raise err
-            glb_out.write_bytes(b"glb")
+            if not self.skip_glb:
+                glb_out.write_bytes(b"glb")
         finally:
             self._exit()
 
@@ -73,6 +77,7 @@ def ev(id, x, y, z, type="occupied", color="#C8C8C8"):
 def client(request, tmp_path, monkeypatch):
     global fake
     monkeypatch.setenv("VRCRAFTER_DATA_DIR", str(tmp_path / "lifespan"))
+    monkeypatch.delenv("VRCRAFTER_GENERATOR", raising=False)
     marker = request.node.get_closest_marker("fake")
     kwargs = dict(marker.kwargs) if marker else {}
     use_fixture = kwargs.pop("fixture", False)
@@ -99,6 +104,10 @@ def post_revision(c, r, voxels, base=None, max_voxels=12000):
         "voxels": voxels,
     }
     return c.post(urlparse(r["revisions_url"]).path, json=body).json()
+
+
+def client_store_root(c):
+    return app.state.store.root
 
 
 def run_two_posts_in_threads():
@@ -145,6 +154,7 @@ def test_empty_structure_is_error(client):
 @pytest.mark.fake(mesh_error=RuntimeError("CUDA out of memory"))
 def test_generation_failure_records_nothing_and_recovers(client):
     assert post_generate(client)["error"] == "Generation failed: CUDA out of memory"
+    assert [p for p in client_store_root(client).iterdir() if re.fullmatch(r"[0-9a-f]{32}", p.name)] == []
     assert post_generate(client)["status"] == "done"
 
 
@@ -238,3 +248,46 @@ def test_unsupported_generator_env_raises(monkeypatch, tmp_path):
 def test_main_does_not_import_torch():
     code = "import sys, app.main; assert not {'torch', 'trellis2', 'PIL'} & set(sys.modules)"
     assert subprocess.run([sys.executable, "-c", code], cwd=BACKEND_DIR).returncode == 0
+
+
+def test_invalid_response_mode_is_error_json(client):
+    r = client.post("/generate", data={"response_mode": "bogus"}, files={"file": ("a.png", b"x")})
+    assert r.status_code == 200 and r.json() == {
+        "status": "error", "error": "response_mode must be model, voxels, or both"}
+
+
+def test_malformed_requests_are_error_json(client):
+    r = client.post("/generate", data={"response_mode": "both"})
+    assert r.status_code == 200 and r.json()["status"] == "error" and r.json()["error"].startswith("Invalid request:")
+    r0 = post_generate(client)
+    r = client.post(urlparse(r0["revisions_url"]).path,
+                    json={"base_revision": 0, "max_voxels": 10, "voxels": [ev(0, 1.5, 1, 1)]})
+    assert r.status_code == 200 and r.json()["status"] == "error" and r.json()["error"].startswith("Invalid request:")
+
+
+def test_glb_route_bad_revision_or_gid_is_404(client):
+    gid = post_generate(client)["generation_id"]
+    assert client.get(f"/generations/{gid}/revisions/abc/model.glb").status_code == 404
+    assert client.get("/generations/not-a-gid/revisions/0/model.glb").status_code == 404
+
+
+@pytest.mark.fake(mesh_error=RuntimeError("boom"))
+def test_revision_mesh_failure_keeps_latest(client):
+    fake.mesh_error = None
+    r0 = post_generate(client)
+    fake.mesh_error = RuntimeError("boom")
+    assert post_revision(client, r0, [ev(0, 1, 1, 1)])["error"] == "Generation failed: boom"
+    assert app.state.store.latest_revision(r0["generation_id"]) == 0
+    assert post_revision(client, r0, [ev(0, 1, 1, 1)])["revision"] == 1
+
+
+def test_revision_reuses_seed(client):
+    r0 = post_generate(client, seed=7)
+    post_revision(client, r0, [ev(0, 1, 1, 1)])
+    assert fake.mesh_seeds == [7, 7]
+
+
+def test_model_error_when_no_glb(client):
+    fake.skip_glb = True
+    r = post_generate(client)
+    assert r["model_error"] == "No GLB was produced." and "model_url" not in r

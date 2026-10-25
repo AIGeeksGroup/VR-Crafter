@@ -9,8 +9,9 @@ import threading
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from .generation_store import GenerationStore
@@ -53,6 +54,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.endswith("/model.glb"):
+        return JSONResponse({"detail": "No GLB for this revision."}, status_code=404)
+    first = exc.errors()[0] if exc.errors() else {}
+    where = ".".join(str(p) for p in first.get("loc", ()))
+    return JSONResponse(_error(f"Invalid request: {where} {first.get('msg', '')}".strip()))
 
 
 class EditedVoxel(BaseModel):
@@ -146,7 +156,7 @@ def _generate_worker(store, generator, gid: str, seed: int, max_voxels: int) -> 
                 "Raise Max Voxels on the Unity Server component."
             )
         ids = store.allocate_ids(gid, len(voxels))
-        voxels = [{"id": i, **v} for i, v in zip(ids, voxels)]
+        voxels = [{**v, "id": i} for i, v in zip(ids, voxels)]
         coords = [(v["x"], v["y"], v["z"]) for v in voxels]
         generator.mesh(image_path, seed, coords, store.revision_dir(gid, 0) / "model.glb")
         store.save_revision(gid, 0, voxels, None)
@@ -163,20 +173,22 @@ async def generate(
 ) -> dict:
     mode = response_mode.lower().strip()
     if mode not in {"model", "voxels", "both"}:
-        raise HTTPException(status_code=400, detail="response_mode must be model, voxels, or both")
+        return _error("response_mode must be model, voxels, or both")
     seed = DEFAULT_SEED if seed is None else seed
 
     store: GenerationStore = request.app.state.store
     generator = request.app.state.generator
-    data = await file.read()
-    suffix = Path(file.filename or "upload.png").suffix.lower() or ".png"
-    gid = store.create(data, suffix, seed, generator.source)
+    gid = None
     try:
+        data = await file.read()
+        suffix = Path(file.filename or "upload.png").suffix.lower() or ".png"
+        gid = store.create(data, suffix, seed, generator.source)
         voxels = await run_in_threadpool(_generate_worker, store, generator, gid, seed, max_voxels)
+        return _success(request, mode, gid, 0, voxels)
     except Exception as exc:
-        shutil.rmtree(store.root / gid, ignore_errors=True)
+        if gid is not None:
+            shutil.rmtree(store.root / gid, ignore_errors=True)
         return _failure(exc)
-    return _success(request, mode, gid, 0, voxels)
 
 
 def _merge_edits(store, gid: str, latest: int, body: RevisionRequest) -> list[dict]:
@@ -244,9 +256,9 @@ async def create_revision(generation_id: str, body: RevisionRequest, request: Re
     generator = request.app.state.generator
     try:
         rev, voxels = await run_in_threadpool(_revision_worker, store, generator, generation_id, body)
+        return _success(request, "both", generation_id, rev, voxels)
     except Exception as exc:
         return _failure(exc)
-    return _success(request, "both", generation_id, rev, voxels)
 
 
 @app.get("/generations/{generation_id}/revisions/{revision}/model.glb")
