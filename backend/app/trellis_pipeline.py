@@ -69,12 +69,21 @@ class TrellisGenerator:
 
         import torch
         import o_voxel.postprocess  # noqa: F401  (fail at startup rather than on the first mesh)
-        from trellis2.pipelines import Trellis2ImageTo3DPipeline
+        from trellis2.pipelines import Trellis2ImageTo3DPipeline, rembg
+
+        from .birefnet_local import LocalBiRefNet
 
         class Pipeline1024(Trellis2ImageTo3DPipeline):
             model_names_to_load = TRELLIS_MODEL_NAMES
 
-        pipe = Pipeline1024.from_pretrained(self.model)
+        # from_pretrained builds pipeline.json's rembg_model via getattr(rembg, "BiRefNet"); swap in the
+        # vendored-code version so no model code is downloaded from Hugging Face (trust_remote_code).
+        upstream_birefnet = rembg.BiRefNet
+        rembg.BiRefNet = LocalBiRefNet
+        try:
+            pipe = Pipeline1024.from_pretrained(self.model)
+        finally:
+            rembg.BiRefNet = upstream_birefnet
         pipe.low_vram = self.low_vram
         pipe.to(torch.device(self.device))
         self._pipe = pipe

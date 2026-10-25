@@ -77,33 +77,35 @@ The code is written and its CPU-side tests pass, but nothing of the following
 has been run, and no timings, voxel counts, GLB sizes or VRAM figures have been
 measured:
 
-1. Install o-voxel and trimesh in the env (`trimesh` may come with it; if not,
-   `pip install trimesh`):
+1. Install o-voxel, trimesh and BiRefNet's dependencies (`timm`, `kornia`, `einops`)
+   in the env:
 
    ```bash
    conda activate trellis2
    cd backend/third_party/TRELLIS.2 && bash setup.sh --o-voxel   # builds the vendored o-voxel source
-   python -c "import o_voxel.postprocess, cumesh, nvdiffrast, flex_gemm, trimesh; print('ok')"
+   pip install trimesh timm kornia einops                         # only those still missing
+   python -c "import o_voxel.postprocess, cumesh, nvdiffrast, flex_gemm, trimesh, timm, kornia, einops; print('ok')"
    ```
 
-2. Get access to two gated models on Hugging Face:
-   `facebook/dinov3-vitl16-pretrain-lvd1689m` (needs manual approval) and
-   `briaai/RMBG-2.0`.
-3. Download the weights (the six checkpoints plus the two gated models):
+2. Get access to the one gated model on Hugging Face:
+   `facebook/dinov3-vitl16-pretrain-lvd1689m` (needs manual approval).
+3. Download the weights (the six checkpoints, DINOv3, and the BiRefNet weights):
 
    ```bash
    hf auth login   # set HF_HOME first if your cache is not in the default location
    hf download microsoft/TRELLIS.2-4B --include "pipeline.json" "ckpts/ss_flow_img_dit_1_3B_64_bf16.*" \
      "ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.*" "ckpts/shape_dec_next_dc_f16c32_fp16.*" \
      "ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.*" "ckpts/tex_dec_next_dc_f16c32_fp16.*"
-   hf download facebook/dinov3-vitl16-pretrain-lvd1689m && hf download briaai/RMBG-2.0
+   hf download facebook/dinov3-vitl16-pretrain-lvd1689m
+   hf download ZhengPeng7/BiRefNet config.json model.safetensors   # weights only; the code is vendored
    ```
 
-4. If `briaai/RMBG-2.0` fails to load under the installed transformers, use the
-   BiRefNet fallback: make a local directory containing a copy of
-   `pipeline.json` with `rembg_model.args.model_name` set to
-   `ZhengPeng7/BiRefNet`, and point `TRELLIS2_MODEL` at that directory. No
-   code change is needed.
+4. Background removal: TRELLIS.2's `pipeline.json` names `briaai/RMBG-2.0`, which
+   upstream loads with `trust_remote_code=True` (model code downloaded from Hugging
+   Face and executed). The backend instead builds the model from the vendored code in
+   [third_party/BiRefNet](third_party/BiRefNet) (`app/birefnet_local.py`) and loads the
+   matching public `ZhengPeng7/BiRefNet` weights, so `briaai/RMBG-2.0` is not needed.
+   It only runs for uploads without an alpha channel.
 5. Run the GPU test and the measuring script:
 
    ```bash

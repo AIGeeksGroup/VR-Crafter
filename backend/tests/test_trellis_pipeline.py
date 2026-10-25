@@ -39,7 +39,8 @@ def test_load_image_reads_png():
 
 
 def test_trellis_pipeline_import_is_light():
-    code = "import sys, app.trellis_pipeline; assert not {'torch', 'trellis2', 'PIL', 'o_voxel'} & set(sys.modules)"
+    code = ("import sys, app.trellis_pipeline; "
+            "assert not {'torch', 'torchvision', 'trellis2', 'PIL', 'o_voxel', 'app.birefnet_local'} & set(sys.modules)")
     assert subprocess.run([sys.executable, "-c", code], cwd=BACKEND_DIR).returncode == 0
 
 
@@ -48,6 +49,12 @@ def test_trellis2_is_vendored_in_repo():
     for rel in ("trellis2/__init__.py", "trellis2/pipelines/trellis2_image_to_3d.py", "o-voxel/setup.py",
                 "o-voxel/o_voxel/postprocess.py", "o-voxel/third_party/eigen/Eigen/Core", "LICENSE"):
         assert (TRELLIS2_ROOT / rel).is_file(), rel
+
+
+def test_birefnet_is_vendored_in_repo():
+    root = BACKEND_DIR / "third_party" / "BiRefNet"
+    for rel in ("__init__.py", "birefnet.py", "BiRefNet_config.py", "config.json", "LICENSE"):
+        assert (root / rel).is_file(), rel
 
 
 def test_load_rejects_missing_vendored_copy(monkeypatch, tmp_path):
@@ -129,8 +136,12 @@ def real_gen():
 @gpu
 def test_real_structure_and_mesh(real_gen, tmp_path):
     import trimesh
+    from trellis2.pipelines import rembg
+
+    from app.birefnet_local import LocalBiRefNet
 
     gen = real_gen
+    assert isinstance(gen._pipe.rembg_model, LocalBiRefNet) and rembg.BiRefNet is not LocalBiRefNet
     voxels = gen.structure(IMAGE, seed=42)
     again = gen.structure(IMAGE, seed=42)
     cells = {(v["x"], v["y"], v["z"]) for v in voxels}

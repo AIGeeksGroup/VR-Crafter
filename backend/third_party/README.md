@@ -20,3 +20,20 @@ checks that `trellis2` was imported from here. The o-voxel extension is built fr
 To update: clone the official repository with `--recursive` at the new commit, replace
 `TRELLIS.2/` with its working tree minus `.git`, update the commit table above, and
 re-check the calls in `trellis_pipeline.py` against the new code.
+
+## BiRefNet
+
+`BiRefNet/` holds the model code that TRELLIS.2's background-removal wrapper would
+otherwise download from Hugging Face at runtime (`trust_remote_code=True`).
+
+| | |
+|---|---|
+| Source | https://huggingface.co/ZhengPeng7/BiRefNet at commit `e2bf8e4460fc` |
+| Files | `birefnet.py`, `BiRefNet_config.py`, `config.json`, `README.md` (model card), unmodified |
+| License | MIT (`BiRefNet/LICENSE`, from https://github.com/ZhengPeng7/BiRefNet) |
+| Added here | `__init__.py` only, re-exporting `BiRefNet` and `BiRefNetConfig` |
+
+`backend/app/birefnet_local.py` imports this directory as a private package and
+builds the model with the matching `ZhengPeng7/BiRefNet` weights (downloaded as
+weights only). It replaces TRELLIS.2's default `briaai/RMBG-2.0`, whose code is
+gated and differs from this public version.
