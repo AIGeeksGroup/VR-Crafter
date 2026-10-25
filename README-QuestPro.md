@@ -80,7 +80,7 @@ Linux 上用 `sudo ufw status` 确认 8000 端口没有被挡住。
 
 ## 验证与限制
 
-已用 Unity 6000.3.15f1 完成编译、真实 Play 模式按钮到 HTTP 服务的生成、失败后重试、旧体素清理，以及自动化拖拽测试。旁边的验证文本记录了具体结果。
+已用 Unity 6000.3.15f1 完成编译、真实 Play 模式按钮到 HTTP 服务的生成、失败后重试、旧体素清理，以及自动化拖拽测试。旁边的验证文本记录了具体结果。这些结果早于新增的编辑与版本（revision）代码，不涵盖它们；新代码尚未在 Unity 中运行，见下文校验命令。
 
 头显尚未连接，因此尚未验证真实 Quest Pro 双眼画面、手柄追踪和佩戴时帧率。预览图片来自 Unity 场景渲染，不是头显截图。
 
@@ -101,7 +101,7 @@ Linux 上用 `sudo ufw status` 确认 8000 端口没有被挡住。
 
 - 每个报告只含 `PASS:` 行，每条命令退出码为 0。
 - `input.txt` 增加 4 行 `Grip and A/X read correctly for …`。
-- `editor.txt` 有 30 行 PASS，最后一行是 `Plain objects and loose GeneratedVoxels keep free dragging while an editor is Active`。
+- `editor.txt` 有 30 行 PASS，最后一行是 `Voxels of a model without an editor (still building) are not free-dragged`。
 - `play.txt` 仍以 `Out-of-grid voxels are removed on submit: …` 结尾。
 - 失败时把 `Logs\*.log` 和报告文件一并保留。
 
