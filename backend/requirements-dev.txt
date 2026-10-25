@@ -1,2 +1,3 @@
 pytest>=8,<9
 httpx>=0.27,<1
+pillow>=10,<14
