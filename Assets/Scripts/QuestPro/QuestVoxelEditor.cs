@@ -5,7 +5,8 @@ public enum QuestVoxelEditMode { Move, Fill, Erase, Add }
 
 /// <summary>
 /// Grid-stepped editing of one generated voxel model: a shared selection, Move/Fill/Erase drags and Add strokes.
-/// Lives on the voxel root and is replaced with it on every rebuild; only one drag or stroke runs at a time.
+/// Lives on the voxel root and is replaced with it on every rebuild; only one drag or stroke runs at a time,
+/// and none starts while the generator's request runs, since its rebuild would discard the edit.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class QuestVoxelEditor : MonoBehaviour
@@ -68,7 +69,7 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     // Grabbing a selected voxel drags the whole selection, any other voxel drags alone.
     public bool BeginDrag(GeneratedVoxel grabbed, Transform hand)
     {
-        if (IsBusy || Mode == QuestVoxelEditMode.Add || owner == null || hand == null || !Owns(grabbed)) return false;
+        if (IsBusy || Mode == QuestVoxelEditMode.Add || owner == null || owner.IsRunning || hand == null || !Owns(grabbed)) return false;
         group.Clear();
         if (!selection.Contains(grabbed)) group.Add(grabbed);
         else foreach (GeneratedVoxel voxel in selection) if (Owns(voxel)) group.Add(voxel);
@@ -101,7 +102,7 @@ public sealed class QuestVoxelEditor : MonoBehaviour
 
     public bool BeginAddStroke(Transform hand)
     {
-        if (IsBusy || Mode != QuestVoxelEditMode.Add || owner == null || hand == null) return false;
+        if (IsBusy || Mode != QuestVoxelEditMode.Add || owner == null || owner.IsRunning || hand == null) return false;
         busyHand = hand;
         adding = true;
         limitReached = hasAirCell = false;
@@ -121,7 +122,11 @@ public sealed class QuestVoxelEditor : MonoBehaviour
         }
         if (hasAirCell && cell != lastAirCell)
         {
-            foreach (Vector3Int step in TrailSteps(lastAirCell, cell)) if (!TryAdd(step, DefaultType, DefaultColor)) break;
+            // At most GridSize cells per frame, like UpdateDrag; the rest of a long line continues next frame.
+            List<Vector3Int> steps = TrailSteps(lastAirCell, cell);
+            int count = Mathf.Min(steps.Count, owner.GridSize);
+            for (int i = 0; i < count; i++) if (!TryAdd(steps[i], DefaultType, DefaultColor)) break;
+            cell = steps[count - 1];
         }
         else TryAdd(cell, DefaultType, DefaultColor);
         hasAirCell = true;

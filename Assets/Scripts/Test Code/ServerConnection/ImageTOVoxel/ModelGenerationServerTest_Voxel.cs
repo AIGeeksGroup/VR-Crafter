@@ -759,8 +759,11 @@ public class GeneratedVoxel : MonoBehaviour
     public string color;
     public Vector3Int Cell => new Vector3Int(x, y, z);
     public bool IsOutsideGrid => x < 0 || y < 0 || z < 0 || x >= gridSize || y >= gridSize || z >= gridSize;
+    // True while parented under the generator root it was created for; such voxels are only edited on the grid.
+    public bool InGeneratedModel => modelRoot != null && transform.parent == modelRoot;
 
     private int gridSize = 64;
+    private Transform modelRoot;
 
     public void Initialize(int voxelId, int gridX, int gridY, int gridZ, string type, string htmlColor, int size, float unityVoxelSize, Transform root)
     {
@@ -773,10 +776,11 @@ public class GeneratedVoxel : MonoBehaviour
         UpdateRuntimeData(size, unityVoxelSize, root);
     }
 
-    // Voxel size and root are owned by the generator; only the grid size is needed here.
+    // Voxel size is owned by the generator; the grid size and the generator's voxel root are kept here.
     public void UpdateRuntimeData(int size, float unityVoxelSize, Transform root)
     {
         gridSize = size;
+        modelRoot = root;
     }
 
     // Grid cell to voxel-root local position. Neighbouring cells touch like Minecraft blocks.

@@ -23,10 +23,12 @@ public static class QuestVoxelEditorValidation
         var left = new GameObject("Validation Left Hand").transform;
         var right = new GameObject("Validation Right Hand").transform;
         var pointerObject = new GameObject("Validation Pointer");
+        var otherPointerObject = new GameObject("Validation Other Pointer");
         try
         {
-            // A rotated, scaled parent checks that every step is taken in voxel-root cells, not world units.
-            fixture.transform.SetPositionAndRotation(new Vector3(200f, 100f, 200f), Quaternion.Euler(0f, 35f, 0f));
+            // A rotated, scaled parent checks that every step is taken in voxel-root cells, not world units. Above 45 degrees
+            // a hit normal left in world space has a different dominant axis, so the Add-on-a-face rows would fail.
+            fixture.transform.SetPositionAndRotation(new Vector3(200f, 100f, 200f), Quaternion.Euler(0f, 60f, 0f));
             fixture.transform.localScale = Vector3.one * 1.3f;
             generator = fixture.AddComponent<ModelGenerationServerTest_Voxel>();
             SetSerialized("makeVoxelsGrabbableForXR", true);
@@ -93,6 +95,21 @@ public static class QuestVoxelEditorValidation
             Check(idleSubmit && started && !busySubmit && !secondHand && stillBusy && !editor.IsBusy && generator.CanSubmitEdits,
                 "One drag at a time; Submit Edits waits for it", results);
             typeof(ModelGenerationServerTest_Voxel).GetField("revisionsUrl", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(generator, null);
+
+            // A running request (Get 3D Model or Submit Edits) rebuilds the voxels, so no edit may start meanwhile.
+            var running = typeof(ModelGenerationServerTest_Voxel).GetField("isRunning", BindingFlags.NonPublic | BindingFlags.Instance);
+            running.SetValue(generator, true);
+            bool dragWhileRunning = editor.BeginDrag(c, left);
+            QuestVoxelEditor.Mode = QuestVoxelEditMode.Add;
+            bool strokeWhileRunning = editor.BeginAddStroke(left);
+            QuestVoxelEditor.Mode = QuestVoxelEditMode.Move;
+            editor.Select(c);
+            bool selectWhileRunning = c.IsSelected;
+            running.SetValue(generator, false);
+            bool dragAfterwards = editor.BeginDrag(c, left);
+            editor.End(left);
+            Check(!dragWhileRunning && !strokeWhileRunning && selectWhileRunning && dragAfterwards && !editor.IsBusy,
+                "No drag or Add stroke starts while a request runs; Grip selection still works", results);
 
             QuestVoxelEditor.Mode = QuestVoxelEditMode.Fill;
             Build((10, 5, 10, "#FF0000"), (10, 6, 10, "#00FF00"));
@@ -181,12 +198,46 @@ public static class QuestVoxelEditorValidation
             Check(generator.GeneratedVoxelCount == 6 && Enumerable.Range(30, 4).All(x => At(x, 30, 30) != null && At(x, 30, 30).color == "#C8C8C8"),
                 "Add in the air without gaps", results);
 
+            int beforeLimit = generator.GeneratedVoxelCount;
+            SetSerialized("maxVoxels", beforeLimit + 2);
+            Aim(left, new Vector3Int(40, 40, 40), Vector3.up);
+            editor.BeginAddStroke(left);
+            editor.UpdateAddStroke(left, 4f);
+            MoveHand(left, new Vector3(4f, 0f, 0f));
+            Physics.SyncTransforms();
+            editor.UpdateAddStroke(left, 4f);
+            editor.UpdateAddStroke(left, 4f);
+            editor.End(left);
+            Check(generator.GeneratedVoxelCount == beforeLimit + 2 && At(41, 40, 40) != null && At(42, 40, 40) == null &&
+                generator.StatusMessage.Contains("Max Voxels reached"), "Add stops at Max Voxels: " + generator.StatusMessage, results);
+            SetSerialized("maxVoxels", 12000);
+
+            // A 189-cell air line is laid at most GridSize cells per update and continues on the next ones without gaps.
+            Build((20, 5, 10, "#0000FF"));
+            Aim(left, Vector3Int.zero, Vector3.up);
+            editor.BeginAddStroke(left);
+            editor.UpdateAddStroke(left, 4f);
+            Aim(left, new Vector3Int(63, 63, 63), Vector3.up);
+            var laid = new List<int>();
+            for (int i = 0; i < 4; i++)
+            {
+                editor.UpdateAddStroke(left, 4f);
+                Physics.SyncTransforms();
+                laid.Add(generator.GeneratedVoxelCount - 1);
+            }
+            editor.End(left);
+            Check(laid.SequenceEqual(new[] { 65, 129, 190, 190 }) && At(63, 63, 63) != null && At(0, 0, 0) != null,
+                "Long air lines are laid over frames: " + string.Join(",", laid), results);
+
             // The production controller path: Trigger routing, Grip selection and A/X clear.
             QuestVoxelEditor.Mode = QuestVoxelEditMode.Move;
             Build((10, 5, 10, "#FF0000"), (10, 6, 10, "#00FF00"));
             a = At(10, 5, 10);
+            b = At(10, 6, 10);
             var pointer = pointerObject.AddComponent<QuestProTriggerInteractor>();
             Call(pointer, "Awake");
+            var otherPointer = otherPointerObject.AddComponent<QuestProTriggerInteractor>();
+            Call(otherPointer, "Awake");
             Aim(pointer.transform, new Vector3Int(10, 5, 7), Vector3.forward);
             Call(pointer, "ProcessInput", true, 0f);
             Call(pointer, "ProcessInput", true, 1f);
@@ -196,6 +247,19 @@ public static class QuestVoxelEditorValidation
             Call(pointer, "ProcessInput", true, 0f);
             Check(routed && a.Cell == new Vector3Int(12, 5, 10) && !editor.IsBusy, "Trigger on an editor voxel drags it on the grid", results);
             Physics.SyncTransforms();
+            Call(pointer, "ProcessInput", true, 1f);
+            Aim(otherPointer.transform, new Vector3Int(10, 6, 7), Vector3.forward);
+            Call(otherPointer, "ProcessInput", true, 0f);
+            Call(otherPointer, "ProcessInput", true, 1f);
+            MoveHand(otherPointer.transform, new Vector3(2f, 0f, 0f));
+            Call(otherPointer, "ProcessInput", true, 1f);
+            bool otherBlocked = b.GetComponent<QuestVoxelDraggable>().Owner == null && b.Cell == new Vector3Int(10, 6, 10) && editor.IsBusy;
+            MoveHand(pointer.transform, new Vector3(1f, 0f, 0f));
+            Call(pointer, "ProcessInput", true, 1f);
+            Call(otherPointer, "ProcessInput", true, 0f);
+            Call(pointer, "ProcessInput", true, 0f);
+            Check(otherBlocked && a.Cell == new Vector3Int(13, 5, 10) && !editor.IsBusy, "Busy editor never free-drags: the other hand's Trigger leaves its voxel alone", results);
+            Physics.SyncTransforms();
             Call(pointer, "ProcessSelectionInput", true, 0.8f, false);
             bool gripSelected = editor.SelectionCount == 1 && a.IsSelected;
             Call(pointer, "ProcessSelectionInput", true, 0f, true);
@@ -204,11 +268,12 @@ public static class QuestVoxelEditorValidation
             QuestVoxelEditor.Mode = QuestVoxelEditMode.Add;
             Call(pointer, "ProcessInput", true, 1f);
             Call(pointer, "ProcessInput", true, 0f);
-            Check(At(12, 5, 9) != null && !editor.IsBusy, "Controller Trigger in Add mode places on the hit face", results);
+            Check(At(13, 5, 9) != null && !editor.IsBusy, "Controller Trigger in Add mode places on the hit face", results);
             QuestVoxelEditor.Mode = QuestVoxelEditMode.Move;
             var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             cube.transform.position = new Vector3(260f, 100f, 260f);
             cube.transform.localScale = Vector3.one * 0.04f;
+            cube.AddComponent<GeneratedVoxel>();
             var plain = cube.AddComponent<QuestVoxelDraggable>();
             Call(plain, "Awake");
             pointer.transform.SetPositionAndRotation(cube.transform.position - Vector3.forward * 0.3f, Quaternion.identity);
@@ -217,12 +282,22 @@ public static class QuestVoxelEditorValidation
             bool freeGrab = plain.Owner == pointer.transform && !editor.IsBusy;
             Call(pointer, "ProcessInput", true, 0f);
             UnityEngine.Object.DestroyImmediate(cube);
-            Check(freeGrab && plain.Owner == null, "Plain objects keep free dragging while an editor is Active", results);
+            Check(freeGrab && plain.Owner == null, "Plain objects and loose GeneratedVoxels keep free dragging while an editor is Active", results);
+
+            // While a model builds, its root has no editor yet; its voxels must still not be free-dragged.
+            UnityEngine.Object.DestroyImmediate(editor);
+            Aim(pointer.transform, new Vector3Int(13, 5, 6), Vector3.forward);
+            Call(pointer, "ProcessInput", true, 0f);
+            Call(pointer, "ProcessInput", true, 1f);
+            bool notFreeDragged = QuestVoxelEditor.Active == null && Voxels().All(v => v.GetComponent<QuestVoxelDraggable>().Owner == null);
+            Call(pointer, "ProcessInput", true, 0f);
+            Check(notFreeDragged, "Voxels of a model without an editor (still building) are not free-dragged", results);
         }
         finally
         {
             QuestVoxelEditor.Mode = QuestVoxelEditMode.Move;
             UnityEngine.Object.DestroyImmediate(pointerObject);
+            UnityEngine.Object.DestroyImmediate(otherPointerObject);
             UnityEngine.Object.DestroyImmediate(left.gameObject);
             UnityEngine.Object.DestroyImmediate(right.gameObject);
             UnityEngine.Object.DestroyImmediate(fixture);

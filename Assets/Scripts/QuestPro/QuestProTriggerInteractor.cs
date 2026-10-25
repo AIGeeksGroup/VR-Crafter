@@ -156,7 +156,9 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
             {
                 if (active.BeginDrag(voxel, transform)) StartEdit(active, candidate);
             }
-            else if (candidate != null && candidate.TryGrab(transform)) held = candidate;
+            // A generated model's voxels are never free-dragged, also while it builds and no editor owns them yet.
+            else if (candidate != null && !(candidate.TryGetComponent(out GeneratedVoxel model) && model.InGeneratedModel) && candidate.TryGrab(transform))
+                held = candidate;
         }
         if (!down && pressed) Release();
         pressed = down;
