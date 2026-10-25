@@ -130,7 +130,22 @@ def _success(request: Request, mode: str, gid: str, rev: int, voxels: list[dict]
     if generator.model_space is not None:
         result["model_space"] = generator.model_space
     result["revisions_url"] = f"{base}/generations/{gid}/revisions"
+    result["generation_url"] = f"{base}/generations/{gid}"
     return result
+
+
+def _latest_revision(store, generator, gid: str) -> int:
+    """Latest committed revision of a generation that this server's generator created."""
+    try:
+        latest = store.latest_revision(gid)
+        source = store.meta(gid)["source"]
+    except KeyError:
+        raise GenerationError(f"Unknown generation {gid}.") from None
+    if latest is None:
+        raise GenerationError(f"Unknown generation {gid}.")
+    if source != generator.source:
+        raise GenerationError(f"Generation {gid} was created by {source}; this server runs {generator.source}.")
+    return latest
 
 
 @app.get("/status")
@@ -244,12 +259,7 @@ def _merge_edits(store, gid: str, latest: int, body: RevisionRequest) -> list[di
 
 def _revision_worker(store, generator, gid: str, body: RevisionRequest) -> tuple[int, list[dict]]:
     with _gpu_lock:
-        try:
-            latest = store.latest_revision(gid)
-        except KeyError:
-            raise GenerationError(f"Unknown generation {gid}.") from None
-        if latest is None:
-            raise GenerationError(f"Unknown generation {gid}.")
+        latest = _latest_revision(store, generator, gid)
         if body.base_revision != latest:
             raise GenerationError(f"Revision {body.base_revision} is stale; latest is {latest}.")
         voxels = _merge_edits(store, gid, latest, body)
@@ -273,6 +283,18 @@ async def create_revision(generation_id: str, body: RevisionRequest, request: Re
     try:
         rev, voxels = await run_in_threadpool(_revision_worker, store, generator, generation_id, body)
         return _success(request, "both", generation_id, rev, voxels)
+    except Exception as exc:
+        return _failure(exc)
+
+
+# Read-only and without _gpu_lock: a revision counts only once its revision.json is written,
+# which save_revision does last and atomically, so this never sees a half-written revision.
+@app.get("/generations/{generation_id}")
+def get_generation(generation_id: str, request: Request) -> dict:
+    store: GenerationStore = request.app.state.store
+    try:
+        rev = _latest_revision(store, request.app.state.generator, generation_id)
+        return _success(request, "both", generation_id, rev, store.load_voxels(generation_id, rev))
     except Exception as exc:
         return _failure(exc)
 

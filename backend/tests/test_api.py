@@ -132,12 +132,14 @@ def test_generate_response(client):
     assert r["model_space"] == "trellis_unit_cube"
     assert r["model_url"].endswith(f"/generations/{gid}/revisions/0/model.glb")
     assert r["revisions_url"].endswith(f"/generations/{gid}/revisions")
+    assert r["generation_url"].endswith(f"/generations/{gid}") and r["generation_url"].startswith("http")
     assert client.get(urlparse(r["model_url"]).path).content == b"glb"
 
 
 def test_response_mode_fields(client):
-    assert "model_url" not in post_generate(client, mode="voxels")
-    assert "voxels" not in post_generate(client, mode="model")
+    voxels_only, model_only = post_generate(client, mode="voxels"), post_generate(client, mode="model")
+    assert "model_url" not in voxels_only and "voxels" not in model_only
+    assert "generation_url" in voxels_only and "generation_url" in model_only
 
 
 def test_over_limit_is_error_not_truncated(client):
@@ -223,6 +225,23 @@ def test_concurrent_requests_serialized(client):
     assert all(r["status"] == "done" for r in run_two_posts_in_threads()) and fake.max_active == 1
 
 
+@pytest.mark.fake(delay=0.2)
+def test_concurrent_generate_and_revision_serialized(client):
+    r0 = post_generate(client)
+    results = {}
+    work = {
+        "generate": lambda: post_generate(TestClient(app)),
+        "revision": lambda: post_revision(TestClient(app), r0, [ev(0, 1, 1, 1)]),
+    }
+    threads = [threading.Thread(target=lambda k=k: results.__setitem__(k, work[k]())) for k in work]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results["generate"]["status"] == "done" and results["revision"]["revision"] == 1
+    assert fake.max_active == 1
+
+
 @pytest.mark.fake(fixture=True)
 def test_fixture_mode_round_trip(client):
     r0 = post_generate(client)
@@ -231,6 +250,42 @@ def test_fixture_mode_round_trip(client):
     v = r0["voxels"][0]
     r1 = post_revision(client, r0, [ev(v["id"], v["x"], v["y"] + 1, v["z"], v["type"], v["color"])])
     assert r1["revision"] == 1 and r1["voxels"][0]["type"] == v["type"]
+
+
+@pytest.mark.fake(fixture=True)
+def test_fixture_resubmit_whole_model_like_unity(client):
+    r0 = post_generate(client)
+    keys = ("id", "x", "y", "z", "type", "color")
+    r1 = post_revision(client, r0, [{k: v[k] for k in keys} for v in r0["voxels"]])
+    assert r1["revision"] == 1 and r1["voxel_count"] == r0["voxel_count"] == 9791
+    assert r1["voxels"] == r0["voxels"]
+
+
+def test_get_generation_returns_latest_committed_revision(client):
+    r0 = post_generate(client)
+    url = urlparse(r0["generation_url"]).path
+    assert client.get(url).json() == r0  # a "both" response, before any edit
+    r1 = post_revision(client, r0, [ev(0, 5, 5, 5), ev(-1, 6, 5, 5)])
+    g = client.get(url)
+    assert g.status_code == 200 and g.json() == r1
+    assert g.json()["revision"] == 1 and g.json()["generation_url"] == r0["generation_url"]
+    assert {"voxels", "model_url", "model_space", "revisions_url", "generation_url"} <= set(g.json())
+
+
+def test_get_generation_unknown_or_uncommitted_is_error(client):
+    uncommitted = app.state.store.create(b"x", ".png", 42, "trellis2")  # revision 0 not saved yet
+    for gid in ["0" * 32, "not-a-generation", uncommitted]:
+        r = client.get(f"/generations/{gid}")
+        assert r.status_code == 200 and r.json() == {"status": "error", "error": f"Unknown generation {gid}."}
+
+
+def test_generation_from_other_generator_is_error(client):
+    r0 = post_generate(client)
+    app.state.generator = FixtureGenerator(BACKEND_DIR / "models")
+    error = f"Generation {r0['generation_id']} was created by trellis2; this server runs fixture."
+    assert post_revision(client, r0, [ev(0, 1, 1, 1)]) == {"status": "error", "error": error}
+    assert client.get(urlparse(r0["generation_url"]).path).json() == {"status": "error", "error": error}
+    assert len(fake.mesh_calls) == 1 and app.state.store.latest_revision(r0["generation_id"]) == 0
 
 
 def test_status_reports_generator(client):

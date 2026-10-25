@@ -56,7 +56,7 @@ class TrellisGenerator:
         if not (Path(root) / "trellis2" / "__init__.py").is_file():
             raise RuntimeError(f"TRELLIS2_ROOT={self.trellis_root!r} does not contain the trellis2 package.")
         if root not in sys.path:
-            sys.path.insert(0, root)
+            sys.path.append(root)  # appended, so it never shadows the backend's own modules
         # Same allocator setting as TRELLIS.2's app.py/example.py; only effective before torch loads.
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
