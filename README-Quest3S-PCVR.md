@@ -50,6 +50,12 @@ On this scene, **Erase** with a VR controller currently uses a drag through occu
 
 ## Key frames and verification evidence
 
+### 2026-10-31 Link session update / Quest Link 连接进度
+
+The Quest 3S user opened **Quest Link > Open Dash** and reported seeing the gridded Link environment. At 22:03 local time, the Meta PC service log recorded Dash visibility and tracking activity. This is evidence that the headset reached the Link environment; it is **not yet** evidence that VR-Crafter ran inside the headset. In the last simultaneous Unity test, OpenXR returned `XR_ERROR_FORM_FACTOR_UNAVAILABLE` and the probe reported `XR active=False`. The Unity Editor process then exited before a successful retest. The PC app also showed a hardware-compatibility warning. A live Unity `LIVE PASS`, controller edit, and headset mirror frames remain pending.
+
+头显已进入 **Quest Link > Open Dash**，用户看到了网格空间；电脑端 Meta 日志也记录了 Dash 与追踪活动。**目前不能据此宣称 Unity 项目已经在头显内运行。** Unity 上一次检测仍是 `XR active=False`，之后编辑器退出。下一步是在头显持续留在 Link 空间时重新打开 Unity、按 Play，并在 Console 确认 `LIVE PASS`；随后用控制器加载房屋、移动一个 voxel、保存编辑，再截取真正的头显镜像关键帧。
+
 The images below are **Unity desktop preview** frames of the same offline scene and controls. They document the editing workflow but are **not** headset captures or proof that Quest Link is rendering in VR. Replace or augment them with Quest Link mirror frames only after the Console reports `LIVE PASS` and a controller edit is observed through the headset.
 
 ![Desktop preview before loading the house](Docs/quest3s-pcvr/01-desktop-ready.png)
