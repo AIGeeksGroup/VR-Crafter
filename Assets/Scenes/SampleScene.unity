@@ -686,10 +686,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 885affbeee6ae8f4d9eafccc528fcffe, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ModelGenerationServerTest_Voxel
-  generateUrl: http://127.0.0.1:8000/generate
+  generateUrl: ''
+  requireTrellis2: 0
+  loadLocalMesh: 1
   imageToUpload: {fileID: 2800000, guid: 70caa661c39fd0045a6bd874d279a1f1, type: 3}
-  outputMode: 2
-  maxVoxels: 12000
+  outputMode: 1
+  maxVoxels: 20000
   autoRunOnPlay: 0
   requestTimeoutSeconds: 600
   modelParent: {fileID: 0}
@@ -698,8 +700,8 @@ MonoBehaviour:
   voxelParent: {fileID: 0}
   voxelRootPosition: {x: 0, y: 0.85, z: 1.15}
   voxelRootScale: {x: 1, y: 1, z: 1}
-  voxelShape: 0
-  voxelSize: 0.015
+  voxelShape: 3
+  voxelSize: 0.025
   voxelPrefab: {fileID: 0}
   makeVoxelsGrabbableForXR: 1
 --- !u!114 &1967570337

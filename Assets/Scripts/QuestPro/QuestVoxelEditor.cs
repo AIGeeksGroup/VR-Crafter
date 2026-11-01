@@ -19,6 +19,10 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     private const string DefaultColor = "#C8C8C8";
     private ModelGenerationServerTest_Voxel owner;
     private readonly Dictionary<Vector3Int, List<GeneratedVoxel>> cells = new();
+    private static readonly Vector3Int[] Neighbours =
+    {
+        Vector3Int.right, Vector3Int.left, Vector3Int.up, Vector3Int.down, Vector3Int.forward, Vector3Int.back
+    };
     private readonly HashSet<GeneratedVoxel> selection = new();
     private readonly List<GeneratedVoxel> group = new();
     private readonly HashSet<GeneratedVoxel> groupSet = new();
@@ -44,7 +48,17 @@ public sealed class QuestVoxelEditor : MonoBehaviour
         owner = generator;
         cells.Clear();
         selection.Clear();
-        foreach (GeneratedVoxel voxel in GetComponentsInChildren<GeneratedVoxel>()) Occupy(voxel);
+        GeneratedVoxel[] voxels = GetComponentsInChildren<GeneratedVoxel>();
+        foreach (GeneratedVoxel voxel in voxels) Occupy(voxel, false);
+        // Interior cubes cannot be hit by a controller ray. Keep their edit data,
+        // but leave only exposed cubes in the physics broadphase on the headset.
+        int exposed = 0;
+        foreach (GeneratedVoxel voxel in voxels)
+        {
+            RefreshCollider(voxel);
+            if (voxel.TryGetComponent(out BoxCollider collider) && collider.enabled) exposed++;
+        }
+        Debug.Log($"[Quest Voxel Editor] Active colliders: {exposed} / {voxels.Length}");
         Active = this;
     }
 
@@ -69,6 +83,20 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     {
         foreach (GeneratedVoxel voxel in selection) if (voxel != null) voxel.SetSelected(false);
         selection.Clear();
+    }
+
+    // A direct Erase click removes one voxel without moving another voxel through it.
+    public bool EraseSingle(GeneratedVoxel voxel)
+    {
+        if (Mode != QuestVoxelEditMode.Erase || IsBusy || owner == null || owner.IsRunning || !Owns(voxel)) return false;
+        if (owner.GeneratedVoxelCount <= 1)
+        {
+            owner.ReportStatus("At least one voxel must remain before Submit Edits.");
+            return false;
+        }
+        Remove(voxel);
+        owner.ReportStatus($"{owner.GeneratedVoxelCount} voxels after erase; Submit Edits to save.");
+        return true;
     }
 
     // Grabbing a selected voxel drags the whole selection, any other voxel drags alone.
@@ -281,15 +309,45 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     private bool IsOutside(Vector3Int cell) =>
         cell.x < 0 || cell.y < 0 || cell.z < 0 || cell.x >= owner.GridSize || cell.y >= owner.GridSize || cell.z >= owner.GridSize;
 
-    private void Occupy(GeneratedVoxel voxel)
+    private void Occupy(GeneratedVoxel voxel, bool refresh = true)
     {
         if (!cells.TryGetValue(voxel.Cell, out List<GeneratedVoxel> here)) cells[voxel.Cell] = here = new List<GeneratedVoxel>(1);
         here.Add(voxel);
+        if (refresh) RefreshCollidersAround(voxel.Cell);
     }
 
     private void Vacate(GeneratedVoxel voxel)
     {
-        if (cells.TryGetValue(voxel.Cell, out List<GeneratedVoxel> here) && here.Remove(voxel) && here.Count == 0) cells.Remove(voxel.Cell);
+        Vector3Int cell = voxel.Cell;
+        if (cells.TryGetValue(cell, out List<GeneratedVoxel> here) && here.Remove(voxel) && here.Count == 0) cells.Remove(cell);
+        RefreshCollidersAround(cell);
+    }
+
+    private void RefreshCollidersAround(Vector3Int cell)
+    {
+        RefreshCollidersAt(cell);
+        foreach (Vector3Int direction in Neighbours) RefreshCollidersAt(cell + direction);
+    }
+
+    private void RefreshCollidersAt(Vector3Int cell)
+    {
+        if (!cells.TryGetValue(cell, out List<GeneratedVoxel> here)) return;
+        foreach (GeneratedVoxel voxel in here) RefreshCollider(voxel);
+    }
+
+    private void RefreshCollider(GeneratedVoxel voxel)
+    {
+        if (voxel == null) return;
+        Vector3Int cell = voxel.Cell;
+        bool exposed = false;
+        foreach (Vector3Int direction in Neighbours)
+        {
+            if (cells.ContainsKey(cell + direction)) continue;
+            exposed = true;
+            break;
+        }
+        voxel.SetRenderVisible(exposed);
+        if (voxel.TryGetComponent(out BoxCollider collider) && collider.enabled != exposed) collider.enabled = exposed;
     }
 
     // Prunes entries of voxels destroyed or moved through the generator API directly.

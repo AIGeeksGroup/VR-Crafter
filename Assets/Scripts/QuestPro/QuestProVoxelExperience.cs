@@ -26,6 +26,9 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
     private QuestProTriggerInteractor rightPointer;
     private bool hasGeneratedModel;
     private float nextControllerStatusUpdate;
+#if UNITY_EDITOR
+    private Camera desktopPreviewCamera;
+#endif
 
     private void Awake()
     {
@@ -57,6 +60,9 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
             enabled = false;
             yield break;
         }
+#if UNITY_EDITOR
+        CreateDesktopPreviewIfNeeded();
+#endif
         // OVRCameraRig creates these anchors in Awake.
         CreateUI();
         leftPointer = AddInteractor("Left Quest Controller Pointer", OVRInput.Controller.LTouch);
@@ -83,9 +89,19 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
 
     private void Update()
     {
+#if UNITY_EDITOR
+        if (desktopPreviewCamera != null && OVRManager.isHmdPresent)
+        {
+            if (menu != null) menu.GetComponent<Canvas>().worldCamera = cameraRig.centerEyeAnchor.GetComponent<Camera>();
+            Destroy(desktopPreviewCamera.gameObject);
+            desktopPreviewCamera = null;
+        }
+#endif
         if (generateButton == null) return;
         generateButton.interactable = !generator.IsRunning;
-        buttonLabel.text = generator.IsRunning ? "Generating..." : "Get 3D Model";
+        buttonLabel.text = generator.UsesLocalModel
+            ? (generator.IsRunning ? "Loading..." : "Load House")
+            : (generator.IsRunning ? "Generating..." : "Get 3D Model");
         submitButton.interactable = generator.CanSubmitEdits;
         for (int i = 0; i < modeButtons.Length; i++) modeButtons[i].IsActive = i == (int)QuestVoxelEditor.Mode;
         statusText.text = generator.StatusMessage;
@@ -134,8 +150,33 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
 
     private void PlaceMenu(Vector3 eyePosition, Quaternion eyeRotation)
     {
-        menu.SetPositionAndRotation(eyePosition + eyeRotation * Vector3.forward * 1.05f, eyeRotation);
+        Vector3 position = eyePosition + eyeRotation * Vector3.forward * 1.05f;
+#if UNITY_EDITOR
+        // Leave the model visible beside the controls when using the desktop preview.
+        if (desktopPreviewCamera != null) position += eyeRotation * Vector3.left * 0.65f;
+#endif
+        menu.SetPositionAndRotation(position, eyeRotation);
     }
+
+#if UNITY_EDITOR
+    private void CreateDesktopPreviewIfNeeded()
+    {
+        // The Quest rig does not render a useful Game view when no OpenXR runtime is running.
+        // Keep this camera out of batch tests and standalone headset builds.
+        if (Application.isBatchMode || OVRManager.isHmdPresent) return;
+        var preview = new GameObject("Desktop Preview Camera", typeof(Camera));
+        desktopPreviewCamera = preview.GetComponent<Camera>();
+        desktopPreviewCamera.clearFlags = CameraClearFlags.SolidColor;
+        desktopPreviewCamera.backgroundColor = new Color(0.08f, 0.11f, 0.16f);
+        desktopPreviewCamera.depth = 100f;
+        desktopPreviewCamera.fieldOfView = 65f;
+        desktopPreviewCamera.nearClipPlane = 0.01f;
+        preview.transform.position = cameraRig.transform.position + new Vector3(0f, 1.4f, -0.5f);
+        preview.transform.LookAt(cameraRig.transform.position + new Vector3(0f, 1.1f, 1.15f));
+        preview.AddComponent<QuestDesktopPreviewControls>().Initialize(generator, desktopPreviewCamera);
+        Debug.Log("[Quest Pro] Desktop preview camera active (no headset runtime). Use the Game view controls.");
+    }
+#endif
 
     private void CreateUI()
     {
@@ -147,9 +188,15 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         canvasObject.transform.SetParent(transform, false);
         menu = canvasObject.transform;
         canvasObject.transform.localScale = Vector3.one * 0.001f;
+#if UNITY_EDITOR
+        if (desktopPreviewCamera != null) canvasObject.transform.localScale = Vector3.one * 0.0015f;
+#endif
         var canvas = canvasObject.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
         if (cameraRig != null) canvas.worldCamera = cameraRig.centerEyeAnchor.GetComponent<Camera>();
+#if UNITY_EDITOR
+        if (desktopPreviewCamera != null) canvas.worldCamera = desktopPreviewCamera;
+#endif
         canvasObject.GetComponent<RectTransform>().sizeDelta = new Vector2(540f, 480f);
 
         var background = new GameObject("Background", typeof(RectTransform), typeof(Image));
@@ -158,7 +205,11 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         background.GetComponent<Image>().color = new Color(0.035f, 0.055f, 0.085f, 0.97f);
         background.GetComponent<Image>().raycastTarget = false;
         CreateText(canvasObject.transform, "Title", "3D MODEL WORKSPACE", new Vector2(0f, 195f), new Vector2(500f, 55f), 30);
-        CreateText(canvasObject.transform, "Instructions", "Grip: select   A/X: clear   Trigger: use mode\nMove/Fill/Erase drag the selection. Add places voxels.",
+        string instructions = "Grip: select   A/X: clear   Trigger: use mode\nMove/Fill/Erase drag the selection. Add places voxels.";
+#if UNITY_EDITOR
+        if (desktopPreviewCamera != null) instructions = "Desktop preview: use DESKTOP CONTROLS in the Game view.\nWheel zooms; right drag orbits; left drag edits voxels.";
+#endif
+        CreateText(canvasObject.transform, "Instructions", instructions,
             new Vector2(0f, 125f), new Vector2(520f, 70f), 20);
 
         for (int i = 0; i < modeButtons.Length; i++)
@@ -167,8 +218,10 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
             modeButtons[i] = CreateButton(mode + " Mode", mode.ToString(), new Vector2(-195f + 130f * i, 45f), new Vector2(120f, 64f),
                 () => QuestVoxelEditor.Mode = mode).Item1.GetComponent<QuestRayButton>();
         }
-        (generateButton, buttonLabel) = CreateButton("Get 3D Model", "Get 3D Model", new Vector2(-120f, -45f), new Vector2(220f, 80f), generator.UploadImageAndGenerate);
-        submitButton = CreateButton("Submit Edits", "Submit Edits", new Vector2(120f, -45f), new Vector2(220f, 80f), generator.SubmitEdits).Item1;
+        string loadLabel = generator.UsesLocalModel ? "Load House" : "Get 3D Model";
+        string saveLabel = generator.UsesLocalModel ? "Save Edits" : "Submit Edits";
+        (generateButton, buttonLabel) = CreateButton(loadLabel, loadLabel, new Vector2(-120f, -45f), new Vector2(220f, 80f), generator.UploadImageAndGenerate);
+        submitButton = CreateButton(saveLabel, saveLabel, new Vector2(120f, -45f), new Vector2(220f, 80f), generator.SubmitEdits).Item1;
         statusText = CreateText(canvasObject.transform, "Status", "Ready", new Vector2(0f, -140f), new Vector2(490f, 110f), 22);
         controllerStatus = CreateText(canvasObject.transform, "Controller Status", "Waiting for controllers", new Vector2(0f, -207f), new Vector2(525f, 45f), 18);
     }

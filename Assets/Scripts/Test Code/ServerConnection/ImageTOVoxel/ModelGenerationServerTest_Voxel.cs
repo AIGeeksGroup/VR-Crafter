@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
 using GLTFast;
@@ -32,6 +33,10 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
     [Header("Server")]
     [SerializeField] private string generateUrl = "http://127.0.0.1:8000/generate";
+    [Tooltip("Require the real TRELLIS.2 backend. Unity will not start or accept the fixture house in this mode.")]
+    [SerializeField] private bool requireTrellis2;
+    [Tooltip("Load the bundled house voxels and save edits on this device; no backend is contacted.")]
+    [SerializeField] private bool loadLocalMesh;
 
     [Header("Input")]
     [SerializeField] private Texture2D imageToUpload;
@@ -66,6 +71,10 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     private bool isRunning;
     private UnityWebRequest activeRequest;
     public bool IsRunning => isRunning;
+    public bool RequiresTrellis2 => requireTrellis2;
+    public bool UsesLocalModel => loadLocalMesh;
+    public string GenerateUrl => generateUrl;
+    public string InputImageName => imageToUpload != null ? imageToUpload.name : "none";
     public int GeneratedVoxelCount { get; private set; }
     public int VoxelDrawBatchCount => voxelBatch != null ? voxelBatch.ChunkCount : 0;
     public string StatusMessage { get; private set; } = "Ready. Select Get 3D Model.";
@@ -75,7 +84,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     public int MaxVoxels => maxVoxels;
     // Needs the editor of the current root, which is attached only after a complete build: a build cut short
     // never submits its partial voxel set, whose missing ids the server would delete.
-    public bool CanSubmitEdits => !isRunning && voxelRoot != null && !string.IsNullOrEmpty(revisionsUrl) &&
+    public bool CanSubmitEdits => !isRunning && voxelRoot != null && (loadLocalMesh || !string.IsNullOrEmpty(revisionsUrl)) &&
         QuestVoxelEditor.Active != null && QuestVoxelEditor.Active.gameObject == voxelRoot && !QuestVoxelEditor.Active.IsBusy;
     private int currentGridSize = 64;
     private float appliedVoxelSize = -1f;
@@ -117,6 +126,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
     private class ServerResponse
     {
         public string status;
+        public string source;
         public string error;
         public string response_mode;
         public string model_url;
@@ -129,6 +139,35 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
         public int grid_size;
         public int voxel_count;
         public VoxelData[] voxels;
+    }
+
+    [System.Serializable]
+    private class BackendStatus
+    {
+        public string status;
+        public string generator;
+    }
+
+    public void ConfigureBackend(string url, bool trellis2)
+    {
+        if (isRunning) throw new System.InvalidOperationException("Wait for the current request to finish before changing backend.");
+        if (!System.Uri.TryCreate(url, System.UriKind.Absolute, out var address) ||
+            (address.Scheme != System.Uri.UriSchemeHttp && address.Scheme != System.Uri.UriSchemeHttps) ||
+            address.AbsolutePath.TrimEnd('/') != "/generate")
+            throw new System.ArgumentException("Enter a full http(s) URL ending in /generate.", nameof(url));
+        ClearGeneratedObjects();
+        revisionsUrl = generationUrl = null;
+        currentRevision = 0;
+        generateUrl = url;
+        requireTrellis2 = trellis2;
+        StatusMessage = trellis2 ? "TRELLIS.2 selected. Connect its GPU server, then generate." : "Fixture selected. Ready to generate.";
+    }
+
+    public void SetInputImage(Texture2D image)
+    {
+        if (isRunning) throw new System.InvalidOperationException("Wait for the current request to finish before changing image.");
+        imageToUpload = image;
+        StatusMessage = image != null ? "Input image selected: " + image.name : "No input image selected.";
     }
 
     [System.Serializable]
@@ -201,6 +240,12 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             return;
         }
 
+        if (loadLocalMesh)
+        {
+            StartCoroutine(RunGenerationSafely(LoadLocalVoxelsRoutine()));
+            return;
+        }
+
         if (imageToUpload == null)
         {
             StatusMessage = "No input image. Assign Image To Upload on Server.";
@@ -221,7 +266,73 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             Debug.LogWarning("[ModelGenerationServerTest] Nothing to submit, or a request is already running.");
             return;
         }
-        StartCoroutine(RunGenerationSafely(SubmitEditsRoutine()));
+        StartCoroutine(RunGenerationSafely(loadLocalMesh ? SaveLocalEditsRoutine() : SubmitEditsRoutine()));
+    }
+
+    private const string LocalResourceName = "PropertyDemoVoxels";
+    private const string LocalEditsFileName = "PropertyDemoVoxels.edits.json";
+
+    private IEnumerator LoadLocalVoxelsRoutine()
+    {
+        StatusMessage = "Loading bundled house...";
+        TextAsset bundled = Resources.Load<TextAsset>(LocalResourceName);
+        if (bundled == null)
+        {
+            StatusMessage = "Bundled house voxel file is missing.";
+            Debug.LogError("[VR-Crafter Local] Missing Resources/" + LocalResourceName + ".json");
+            yield break;
+        }
+        ServerResponse original = JsonUtility.FromJson<ServerResponse>(bundled.text);
+        if (original == null || original.source != "local_glb" || original.voxels == null || original.voxels.Length == 0)
+        {
+            StatusMessage = "Bundled house voxel file is invalid.";
+            yield break;
+        }
+        ServerResponse selected = original;
+        string path = Path.Combine(Application.persistentDataPath, LocalEditsFileName);
+        if (File.Exists(path))
+        {
+            try
+            {
+                ServerResponse saved = JsonUtility.FromJson<ServerResponse>(File.ReadAllText(path));
+                if (saved != null && saved.source == "local_glb" && saved.generation_id == original.generation_id &&
+                    saved.grid_size == original.grid_size && saved.voxels != null)
+                    selected = saved;
+                else Debug.LogWarning("[VR-Crafter Local] Saved edits do not match the bundled house; loading original.");
+            }
+            catch (System.Exception e) { Debug.LogWarning("[VR-Crafter Local] Could not read saved edits: " + e.Message); }
+        }
+        Debug.Log($"[VR-Crafter Local] Loading {selected.voxels.Length} voxels from " +
+                  (selected == original ? "bundled GLB cache." : path));
+        yield return ApplyServerResponse(selected);
+        StatusMessage = $"House loaded locally: {GeneratedVoxelCount} voxels. Revision {currentRevision}.";
+    }
+
+    private IEnumerator SaveLocalEditsRoutine()
+    {
+        StatusMessage = "Saving edits locally...";
+        yield return null;
+        TextAsset bundled = Resources.Load<TextAsset>(LocalResourceName);
+        if (bundled == null) { StatusMessage = "Bundled house voxel file is missing."; yield break; }
+        ServerResponse original = JsonUtility.FromJson<ServerResponse>(bundled.text);
+        var edited = new List<VoxelData>();
+        foreach (GeneratedVoxel voxel in voxelRoot.GetComponentsInChildren<GeneratedVoxel>())
+        {
+            if (voxel == null || !voxel.gameObject.activeSelf || voxel.IsOutsideGrid) continue;
+            edited.Add(new VoxelData { id = voxel.id, x = voxel.x, y = voxel.y, z = voxel.z,
+                type = voxel.voxelType, color = voxel.color });
+        }
+        var saved = new ServerResponse { status = "done", source = "local_glb", response_mode = "voxels",
+            generation_id = original.generation_id, revision = currentRevision + 1,
+            grid_size = currentGridSize, voxel_count = edited.Count, voxels = edited.ToArray() };
+        string path = Path.Combine(Application.persistentDataPath, LocalEditsFileName);
+        string temporary = path + ".tmp";
+        File.WriteAllText(temporary, JsonUtility.ToJson(saved));
+        if (File.Exists(path)) File.Delete(path);
+        File.Move(temporary, path);
+        currentRevision = saved.revision;
+        StatusMessage = $"Saved locally: revision {currentRevision}, {edited.Count} voxels.";
+        Debug.Log("[VR-Crafter Local] " + StatusMessage + " File: " + path);
     }
 
     public void ReportStatus(string message) => StatusMessage = message;
@@ -285,6 +396,30 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
     private IEnumerator GenerateRoutine()
     {
+        if (requireTrellis2)
+        {
+            var statusUrl = new System.Uri(new System.Uri(generateUrl), "/status").ToString();
+            StatusMessage = "Checking TRELLIS.2 backend...";
+            var check = UnityWebRequest.Get(statusUrl);
+            activeRequest = check;
+            check.timeout = 10;
+            yield return check.SendWebRequest();
+            if (check.result != UnityWebRequest.Result.Success)
+            {
+                StatusMessage = "TRELLIS.2 server unavailable. Start the GPU backend and retry.";
+                Debug.LogError("[ModelGenerationServerTest] TRELLIS.2 status check failed at " + statusUrl + ": " + check.error);
+                yield break;
+            }
+            BackendStatus backend = JsonUtility.FromJson<BackendStatus>(check.downloadHandler.text);
+            if (backend == null || backend.status != "ok" || backend.generator != "trellis2")
+            {
+                StatusMessage = "Expected TRELLIS.2, but this server is " + (backend?.generator ?? "unknown") + ".";
+                Debug.LogError("[ModelGenerationServerTest] " + StatusMessage);
+                yield break;
+            }
+            check.Dispose();
+            activeRequest = null;
+        }
         StatusMessage = "Preparing image...";
         Debug.Log("[ModelGenerationServerTest] Encoding image...");
 
@@ -430,6 +565,12 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             StatusMessage = "Invalid server response. Check Console and retry.";
             yield break;
         }
+        if (!loadLocalMesh && requireTrellis2 && r.source != "trellis2")
+        {
+            StatusMessage = "Expected TRELLIS.2 result; received " + (r.source ?? "unknown") + ".";
+            Debug.LogError("[ModelGenerationServerTest] " + StatusMessage);
+            yield break;
+        }
 
         currentGridSize = r.grid_size > 0 ? r.grid_size : 64;
         revisionsUrl = r.revisions_url;
@@ -451,6 +592,12 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
                 DestroyGeneratedObject(modelRoot);
                 modelRoot = null;
             }
+        }
+        else
+        {
+            // A voxel-only response must not leave a GLB from an earlier revision or mode.
+            DestroyGeneratedObject(modelRoot);
+            modelRoot = null;
         }
 
         if (ShouldBuildVoxels())
@@ -805,6 +952,13 @@ public class GeneratedVoxel : MonoBehaviour
     private QuestVoxelBatchRenderer renderBatch;
     private int renderChunk = -1;
     public bool HasRenderBatch => renderBatch != null;
+    public bool IsRenderVisible { get; private set; } = true;
+    public void SetRenderVisible(bool visible)
+    {
+        if (IsRenderVisible == visible) return;
+        IsRenderVisible = visible;
+        NotifyRenderChanged();
+    }
     public bool IsRayHighlighted { get; private set; }
     public void SetRayHighlight(bool value)
     {

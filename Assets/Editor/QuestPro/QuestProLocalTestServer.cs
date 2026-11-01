@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
@@ -36,6 +37,12 @@ public static class QuestProLocalTestServer
         var experience = UnityEngine.Object.FindFirstObjectByType<QuestProVoxelExperience>();
         if (experience == null) return;
         var generator = experience.GetComponent<ModelGenerationServerTest_Voxel>();
+        if (generator.UsesLocalModel) return;
+        if (generator.RequiresTrellis2)
+        {
+            Debug.Log("[Quest Pro] TRELLIS.2 mode selected; local fixture startup disabled.");
+            return;
+        }
         string url = new SerializedObject(generator).FindProperty("generateUrl").stringValue;
         if (url != "http://127.0.0.1:8000/generate" || IsListening()) return;
         if (ownedProcess != null && !ownedProcess.HasExited) return;
@@ -88,5 +95,56 @@ public static class QuestProLocalTestServer
         try { if (!ownedProcess.HasExited) ownedProcess.Kill(); }
         catch (InvalidOperationException) { }
         finally { ownedProcess.Dispose(); ownedProcess = null; }
+    }
+}
+
+/// <summary>Scene-level connection settings for the same Unity generation client.</summary>
+public sealed class QuestProBackendConnectionWindow : EditorWindow
+{
+    private string url = "http://127.0.0.1:8000/generate";
+    private bool trellis2 = true;
+
+    [MenuItem("Tools/Quest Pro/Connect Generation Backend")]
+    private static void Open()
+    {
+        var window = GetWindow<QuestProBackendConnectionWindow>("VR-Crafter Backend");
+        var generator = UnityEngine.Object.FindFirstObjectByType<ModelGenerationServerTest_Voxel>();
+        if (generator != null)
+        {
+            window.url = generator.GenerateUrl;
+            window.trellis2 = generator.RequiresTrellis2;
+        }
+        window.minSize = new Vector2(440f, 185f);
+    }
+
+    private void OnGUI()
+    {
+        EditorGUILayout.LabelField("Generation backend", EditorStyles.boldLabel);
+        trellis2 = EditorGUILayout.Toggle("Require real TRELLIS.2", trellis2);
+        url = EditorGUILayout.TextField("Generate URL", url);
+        EditorGUILayout.HelpBox(trellis2
+            ? "A Linux GPU service must answer /status with generator=trellis2. Unity will not launch or accept the fixed house."
+            : "Fixture mode uses the local fixed house for desktop testing.", MessageType.Info);
+        var generator = UnityEngine.Object.FindFirstObjectByType<ModelGenerationServerTest_Voxel>();
+        using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode || generator == null))
+        {
+            if (GUILayout.Button("Save connection to open scene"))
+            {
+                try
+                {
+                    Undo.RecordObject(generator, "Set VR-Crafter generation backend");
+                    generator.ConfigureBackend(url.Trim(), trellis2);
+                    EditorUtility.SetDirty(generator);
+                    EditorSceneManager.MarkSceneDirty(generator.gameObject.scene);
+                    EditorSceneManager.SaveScene(generator.gameObject.scene);
+                    Debug.Log("[Quest Pro] Backend saved: " + (trellis2 ? "TRELLIS.2 " : "fixture ") + generator.GenerateUrl);
+                }
+                catch (Exception exception)
+                {
+                    EditorUtility.DisplayDialog("Backend settings", exception.Message, "OK");
+                }
+            }
+        }
+        if (generator == null) EditorGUILayout.HelpBox("Open Assets/Scenes/SampleScene.unity first.", MessageType.Warning);
     }
 }

@@ -107,7 +107,7 @@ public sealed class QuestVoxelBatchRenderer : MonoBehaviour
                 for (int i = 0; i < chunk.voxels.Count; i++)
                 {
                     var voxel = chunk.voxels[i];
-                    if (voxel == null || !voxel.gameObject.activeInHierarchy) continue;
+                    if (voxel == null || !voxel.gameObject.activeInHierarchy || !chunk.data[i].IsRenderVisible) continue;
                     Color color = DisplayColor(chunk, i);
                     for (int v = 0; v < cubeVertices.Length; v++) chunk.vertexColors[offset++] = color;
                 }
@@ -125,7 +125,7 @@ public sealed class QuestVoxelBatchRenderer : MonoBehaviour
             for (int i = 0; i < chunk.voxels.Count; i++)
             {
                 var voxel = chunk.voxels[i];
-                if (voxel == null || !voxel.gameObject.activeInHierarchy) continue;
+                if (voxel == null || !voxel.gameObject.activeInHierarchy || !chunk.data[i].IsRenderVisible) continue;
                 Matrix4x4 matrix = Matrix4x4.TRS(voxel.localPosition, voxel.localRotation, voxel.localScale);
                 Matrix4x4 normalMatrix = matrix.inverse.transpose;
                 int offset = chunk.vertices.Count;
