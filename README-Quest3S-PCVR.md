@@ -50,6 +50,25 @@ On this scene, **Erase** with a VR controller currently uses a drag through occu
 
 ## Key frames and verification evidence
 
+### 2026-11-05 PC VR session update
+
+Today, the Quest 3S entered **Quest Link > Open Dash** over USB. The user reported seeing the Unity environment fill the headset rather than a flat desktop window. In the same session, Unity's Game view switched to **Left Eye** and changed with headset movement. The Editor log reported `XR active=True`, `runtime=OpenXR Display`, and `GPU=NVIDIA RTX A2000 8GB Laptop GPU`; Meta's PC service log showed an active Link streaming session. This confirms that the laptop was running the Unity scene and rendering through the PC OpenXR path while the Quest displayed the stereo view.
+
+The live verification probe still reported **LIVE NOT VERIFIED**: it did not observe a tracked head and a tracked controller at the same instant. Unity logged `TrackingAcquired` and briefly detected `RTouch` as `MetaQuestTouchPlusControllerOpenXR`, followed by intermittent `No pose`. We therefore have **not** verified controller selection, loading the house, moving a voxel, or saving an edit through Quest Link. The bundled house remains local; this scene does not call TRELLIS.2, the RTX 3090 server, SSH, or the generation backend.
+
+The initial immersive view showed the floor and sky without the workspace panel. We changed `QuestProVoxelExperience` so the panel recenters when an HMD is present, without requiring the head pose to exceed a standing-height threshold. Unity recompiled successfully, and the panel with **Load House** appeared in the Editor Game view. That second Play session reported `XR active=False`, so the panel fix still needs a headset retest. We stopped Play Mode here at the user's request.
+
+| Check today | Observed result |
+|---|---|
+| Quest Link stereo PC VR display and head-responsive Unity view | **Observed** in the headset and Unity Left Eye view |
+| PC GPU rendering path | **Observed**: Unity reported NVIDIA RTX A2000 and OpenXR Display |
+| Persistent headset plus controller tracking | **Not verified**: controller pose was intermittent |
+| Panel placement change | **Compiled; visible in Editor Game view**; headset retest pending |
+| Load House, voxel editing, Save Edits in PC VR | **Not tested** in this live session |
+| New headset mirror key frames | **Not captured**; desktop images below remain labeled as desktop preview |
+
+Next live check: keep Quest Link Dash active before pressing Unity **Play**; confirm the panel and a `Ready` controller ray in the headset, then load the bundled house, move one voxel, and save/reload. Capture Oculus Mirror frames only after those actions are visible. If a new Play session says `XR active=False`, stop Play, re-enter Quest Link in the headset, and start Play again.
+
 ### 2026-10-31 Link session update / Quest Link 连接进度
 
 The Quest 3S user opened **Quest Link > Open Dash** and reported seeing the gridded Link environment. At 22:03 local time, the Meta PC service log recorded Dash visibility and tracking activity. This is evidence that the headset reached the Link environment; it is **not yet** evidence that VR-Crafter ran inside the headset. In the last simultaneous Unity test, OpenXR returned `XR_ERROR_FORM_FACTOR_UNAVAILABLE` and the probe reported `XR active=False`. The Unity Editor process then exited before a successful retest. The PC app also showed a hardware-compatibility warning. A live Unity `LIVE PASS`, controller edit, and headset mirror frames remain pending.

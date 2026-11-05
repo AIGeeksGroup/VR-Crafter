@@ -73,7 +73,7 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         PlaceMenu(new Vector3(0f, 1.55f, 0f), Quaternion.identity);
         while (!placedForHeadset)
         {
-            if (OVRManager.isHmdPresent && cameraRig.centerEyeAnchor.position.y > cameraRig.transform.position.y + 0.2f)
+            if (OVRManager.isHmdPresent)
             {
                 // Let the first tracked head pose settle, rather than fixing the panel to
                 // the editor rig's forward axis during the first initialization frame.
