@@ -84,9 +84,20 @@ class TrellisGenerator:
             pipe = Pipeline1024.from_pretrained(self.model)
         finally:
             rembg.BiRefNet = upstream_birefnet
+        self._flatten_dinov3(pipe)
         pipe.low_vram = self.low_vram
         pipe.to(torch.device(self.device))
         self._pipe = pipe
+
+    @staticmethod
+    def _flatten_dinov3(pipe) -> None:
+        """transformers 5 wraps the ViT blocks in model.model; the extractor expects model.layer."""
+        extractor = getattr(pipe, "image_cond_model", None)
+        dino = getattr(extractor, "model", None)
+        inner = getattr(dino, "model", None)
+        if dino is not None and not hasattr(dino, "layer") and getattr(inner, "layer", None) is not None:
+            # Bypass nn.Module.__setattr__: this is an alias for forward, not a second set of weights.
+            object.__setattr__(dino, "layer", inner.layer)
 
     def _preprocess(self, image_path: Path):
         return self._pipe.preprocess_image(load_image(Path(image_path)))

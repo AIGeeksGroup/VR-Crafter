@@ -23,8 +23,9 @@ GLB 加载失败时，状态栏末尾追加 `GLB failed to load; see Console.`�
 | 输入 | 作用 |
 |---|---|
 | 射线 + Trigger 指向面板按钮 | 按下按钮（优先于其他操作） |
-| **按住 Grip** + 射线扫过体素 | 体素加入选区，显示为洋红色 |
-| **A / X** | 清空选区 |
+| **按住 Grip** + 射线扫过体素 | 体素加入选区，显示为洋红色；射线没精确打中时自动吸附到附近最近的体素（约 2 cm 内），悬停先高亮候选 |
+| **A / X** | 清空选区（同时清空撤销记录） |
+| **按下左/右摇杆** | 撤销最近一次 Grip 刷选，之前选中的体素保留 |
 | Trigger（Move / Fill / Erase 模式） | 抓住体素拖动；抓的是选区内的体素就整个选区一起拖，否则只拖这一个。Move 只平移（射线橙色）；Fill 平移并在离开的格子留下副本（绿色）；Erase 删除经过的格子里的其他体素（红色） |
 | Trigger（Add 模式） | 在预览方块的位置放置新体素（紫色射线）；按住扫动可连续放置 |
 | 面板 **Move / Fill / Erase / Add** | 切换模式，当前模式的按钮为橙色 |
@@ -105,14 +106,14 @@ Linux 上用 `sudo ufw status` 确认 8000 端口没有被挡住。
 
 - 每个报告只含 `PASS:` 行，每条命令退出码为 0。
 - `input.txt` 增加 4 行 `Grip and A/X read correctly for …`。
-- `editor.txt` 有 32 行 PASS，最后一行是 `Submit Edits waits for the finished build's own editor`。
+- `editor.txt` 有 34 行 PASS，最后三行依次是 `Submit Edits waits for the finished build's own editor`、`Aim beside a small voxel: hover preview and Grip magnetic pick`、`Grip strokes undo one at a time; A/X clears the rest`。
 - `play.txt` 有 34 行 PASS，以 `The reloaded model submits as revision 3: Revision 3: …` 结尾；倒数第三行是 `A stale submit reloads the server's latest revision: Server already had revision 2; loaded it. …`。
 - 失败时把 `Logs\*.log` 和报告文件一并保留。
 
 ## 头显中还需确认
 
 - 使用 `trellis2` 时 GLB 和体素重叠，不是镜像；模型正面朝向用户（如果不是，需整体绕 Y 轴旋转映射和 GLB 根节点，见 [backend/UNITY_INTEGRATION.md](backend/UNITY_INTEGRATION.md)）。
-- Grip 刷选和 A/X 清空正常；四种模式的射线颜色和按钮高亮正确；Add 的预览方块与实际落点一致。
+- Grip 刷选和 A/X 清空正常；射线偏离小体素约 2 cm 时仍能磁吸选中，悬停会先高亮候选；按摇杆能撤销最近一笔；四种模式的射线颜色和按钮高亮正确，Add 的预览方块与实际落点一致。
 - Submit Edits 之后 GLB 更新，状态栏显示 `Revision n: … voxels ready.`。
 - 把 `Max Voxels` 调小，确认超限提示能显示。
 - 大选区连续 Fill 和 Erase 约 20 秒，查看 `Library/QuestProInputDiagnostics.log` 中的平均帧时间和最大帧时间。

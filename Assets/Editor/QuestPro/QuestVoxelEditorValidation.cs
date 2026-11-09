@@ -318,6 +318,36 @@ public static class QuestVoxelEditorValidation
             UnityEngine.Object.DestroyImmediate(stray.gameObject);
             SetRevisionsUrl(null);
             Check(partialBlocked && builtAllowed && strayBlocked, "Submit Edits waits for the finished build's own editor", results);
+
+            // Small voxels are picked magnetically: aim just past a cube's edge, see the hover, and Grip selects it.
+            Build((30, 20, 30, "#FF0000"));
+            var single = At(30, 20, 30);
+            Vector3 aim = root.TransformPoint(GeneratedVoxel.GridToLocal(new Vector3Int(30, 20, 26), 64, generator.VoxelSize)) +
+                root.TransformDirection(Vector3.right) * (generator.VoxelSize * 0.95f);
+            pointer.transform.SetPositionAndRotation(aim, Quaternion.LookRotation(root.TransformDirection(Vector3.forward), root.up));
+            Physics.SyncTransforms();
+            Call(pointer, "ProcessInput", true, 0f);
+            bool hoverShown = single.GetComponent<QuestVoxelDraggable>().IsHovered;
+            Call(pointer, "ProcessSelectionInput", true, 0.8f, false);
+            Call(pointer, "ProcessSelectionInput", true, 0f, false);
+            Check(hoverShown && editor.SelectionCount == 1 && single.IsSelected,
+                "Aim beside a small voxel: hover preview and Grip magnetic pick", results);
+
+            // Each Grip press is one undoable stroke; A/X still clears everything.
+            Build((30, 20, 30, "#FF0000"), (31, 20, 30, "#00FF00"));
+            var u1 = At(30, 20, 30);
+            var u2 = At(31, 20, 30);
+            editor.BeginSelectionStroke();
+            editor.Select(u1);
+            editor.EndSelectionStroke();
+            editor.BeginSelectionStroke();
+            editor.Select(u2);
+            editor.EndSelectionStroke();
+            editor.UndoSelection();
+            bool oneUndone = editor.SelectionCount == 1 && u1.IsSelected && !u2.IsSelected && editor.UndoCount == 1;
+            editor.ClearSelection();
+            bool cleared = editor.SelectionCount == 0 && editor.UndoCount == 0;
+            Check(oneUndone && cleared, "Grip strokes undo one at a time; A/X clears the rest", results);
         }
         finally
         {

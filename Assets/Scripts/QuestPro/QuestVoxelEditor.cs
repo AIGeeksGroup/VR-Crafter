@@ -15,6 +15,9 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     public static QuestVoxelEditor Active { get; private set; }
     public static readonly Color SelectedColor = new(1f, 0.35f, 0.9f);
     public const float AddTipDistance = 0.05f;
+    // Selection is magnetic: the aim ray may pass this many voxel widths away from a cube and still pick it.
+    public const float SelectionSnapVoxels = 1.4f;
+    private const int MaxUndoStrokes = 32;
     private const string DefaultType = "occupied";
     private const string DefaultColor = "#C8C8C8";
     private ModelGenerationServerTest_Voxel owner;
@@ -27,8 +30,11 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     private readonly HashSet<GeneratedVoxel> stroke = new();
     private readonly RaycastHit[] hits = new RaycastHit[256];
     private readonly List<(Transform hand, Renderer cube, Material material)> previews = new();
+    private readonly List<GeneratedVoxel> strokeSelection = new();
+    private readonly List<List<GeneratedVoxel>> undoStrokes = new();
     private Transform busyHand;
     private bool adding;
+    private bool selecting;
     private bool limitReached;
     private QuestVoxelEditMode dragMode;
     private Vector3 handOffset;
@@ -37,6 +43,7 @@ public sealed class QuestVoxelEditor : MonoBehaviour
     private bool hasAirCell;
     private Vector3Int lastAirCell;
     public int SelectionCount => selection.Count;
+    public int UndoCount => undoStrokes.Count;
     public bool IsBusy => busyHand != null;
 
     public void Initialize(ModelGenerationServerTest_Voxel generator)
@@ -44,6 +51,9 @@ public sealed class QuestVoxelEditor : MonoBehaviour
         owner = generator;
         cells.Clear();
         selection.Clear();
+        strokeSelection.Clear();
+        undoStrokes.Clear();
+        selecting = false;
         foreach (GeneratedVoxel voxel in GetComponentsInChildren<GeneratedVoxel>()) Occupy(voxel);
         Active = this;
     }
@@ -62,13 +72,79 @@ public sealed class QuestVoxelEditor : MonoBehaviour
 
     public void Select(GeneratedVoxel voxel)
     {
-        if (Owns(voxel) && selection.Add(voxel)) voxel.SetSelected(true);
+        if (!Owns(voxel) || !selection.Add(voxel)) return;
+        voxel.SetSelected(true);
+        if (selecting) strokeSelection.Add(voxel);
+    }
+
+    // One Grip press is one undoable selection stroke; moving the hand during the press adds to it.
+    public void BeginSelectionStroke()
+    {
+        selecting = true;
+        strokeSelection.Clear();
+    }
+
+    public void EndSelectionStroke()
+    {
+        if (!selecting) return;
+        selecting = false;
+        if (strokeSelection.Count == 0) return;
+        undoStrokes.Add(new List<GeneratedVoxel>(strokeSelection));
+        if (undoStrokes.Count > MaxUndoStrokes) undoStrokes.RemoveAt(0);
+        strokeSelection.Clear();
+    }
+
+    // Removes the voxels added by the most recent Grip stroke; voxels selected earlier stay selected.
+    public bool UndoSelection()
+    {
+        if (IsBusy || undoStrokes.Count == 0) return false;
+        List<GeneratedVoxel> last = undoStrokes[undoStrokes.Count - 1];
+        undoStrokes.RemoveAt(undoStrokes.Count - 1);
+        foreach (GeneratedVoxel voxel in last)
+        {
+            if (voxel == null || !Owns(voxel)) continue;
+            if (selection.Remove(voxel)) voxel.SetSelected(false);
+        }
+        return true;
+    }
+
+    // Nearest owned voxel to the aim ray, so a 1.5 cm cube can be picked without pixel-perfect aiming.
+    // The front-most voxel wins, so a magnetic pick never reaches through the surface; distance to the ray breaks ties.
+    public GeneratedVoxel FindRayVoxel(Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        if (owner == null) return null;
+        if (Physics.Raycast(origin, direction, out RaycastHit blocker, maxDistance,
+                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide) &&
+            blocker.collider.GetComponentInParent<QuestRayButton>() != null) return null;
+        float radius = Mathf.Max(owner.VoxelSize * SelectionSnapVoxels, 0.012f);
+        int count = Physics.SphereCastNonAlloc(origin, radius, direction, hits, maxDistance,
+            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide);
+        GeneratedVoxel nearest = null;
+        float nearestOffset = float.PositiveInfinity;
+        float nearestDistance = float.PositiveInfinity;
+        for (int i = 0; i < count; i++)
+        {
+            var voxel = hits[i].collider.GetComponentInParent<GeneratedVoxel>();
+            if (!Owns(voxel)) continue;
+            float offset = Vector3.Cross(direction, voxel.transform.position - origin).magnitude;
+            if (offset > radius) continue;
+            if (hits[i].distance < nearestDistance - 0.0005f ||
+                (hits[i].distance <= nearestDistance + 0.0005f && offset < nearestOffset))
+            {
+                nearest = voxel;
+                nearestOffset = offset;
+                nearestDistance = hits[i].distance;
+            }
+        }
+        return nearest;
     }
 
     public void ClearSelection()
     {
         foreach (GeneratedVoxel voxel in selection) if (voxel != null) voxel.SetSelected(false);
         selection.Clear();
+        strokeSelection.Clear();
+        undoStrokes.Clear();
     }
 
     // Grabbing a selected voxel drags the whole selection, any other voxel drags alone.

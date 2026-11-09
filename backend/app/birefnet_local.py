@@ -9,6 +9,7 @@ TRELLIS.2 is on sys.path.
 """
 
 import importlib.util
+import os
 from pathlib import Path
 import sys
 
@@ -16,7 +17,8 @@ from torchvision import transforms
 from trellis2.pipelines import rembg
 
 BIREFNET_ROOT = Path(__file__).resolve().parent.parent / "third_party" / "BiRefNet"
-BIREFNET_WEIGHTS = "ZhengPeng7/BiRefNet"
+# A local directory works too, which keeps a mirrored deployment offline.
+BIREFNET_WEIGHTS = os.environ.get("VRCRAFTER_BIREFNET", "ZhengPeng7/BiRefNet")
 _PACKAGE = "vrcrafter_vendored_birefnet"
 
 
@@ -37,6 +39,8 @@ class LocalBiRefNet(rembg.BiRefNet):
         del model_name  # pipeline.json's briaai/RMBG-2.0 is replaced by the weights matching the vendored code
         self.model = _vendored_birefnet().BiRefNet.from_pretrained(BIREFNET_WEIGHTS)
         self.model.eval()
+        # The published checkpoint is fp16, while the wrapper feeds float32 images; keep one dtype.
+        self.model.float()
         # Same transform as the upstream wrapper's __init__; to/cuda/cpu/__call__ are inherited unchanged.
         self.transform_image = transforms.Compose(
             [

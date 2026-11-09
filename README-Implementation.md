@@ -2,6 +2,8 @@
 
 本文汇总分支 `feat/trellis2-voxel-editing` 上的全部修改（基于 `main` 的 `7bc61ac`），说明每一部分做了什么、怎么工作，以及哪些地方还没有验证。
 
+> 最后更新：2026-11-01。2026-10-26 已在 L40S 上实际跑通 TRELLIS.2，并在 Unity 6000.6 编辑器里显示体素与 GLB，详见第 10 节。
+
 ## 1. 概述
 
 这个分支实现了一个完整的闭环：
@@ -17,10 +19,10 @@
 | 部分 | 状态 |
 |---|---|
 | 后端（fixture 模式、接口、存储） | 已在 `backend/.venv` 中测试：62 passed, 1 skipped（GPU 测试） |
-| TRELLIS.2 生成器 | **只写了代码，从未在 GPU 上运行**：权重未下载，`trellis2` 环境未装 o-voxel 和 trimesh。所有调用都已对照 TRELLIS.2 源码逐一核对 |
-| Unity 代码 | **从未在真实 Unity 中运行**。只用本机的 Linux Unity 6000.0 编译器（加部分包的桩）检查过能编译通过；所有验证脚本都需要在 Windows 上跑 |
+| TRELLIS.2 生成器 | **已在 L40S 上实际跑通**（2026-10-26）：一张椅子照片生成 6,899 个体素和 22.2 MB 的 GLB；阶段一 3.2 秒、阶段二 86.3 秒、显存峰值 14.5 GB。首次运行修复了 BiRefNet 的 fp16/fp32 和 transformers 5.9 的 DINOv3 层级问题，详见第 10 节 |
+| Unity 代码 | **已在 Unity 6000.6 编辑器中实际运行**：Play Mode 下成功加载 GLB（约 23 MB）并显示 13,676 个体素；但第 5.7 节的六条验证脚本还没有完整跑过，头显也还没接 |
 | 头显中的效果 | 未验证：GLB 与体素是否重合、模型正面朝向、交互手感、帧率 |
-| 文档 | `backend/README.md`、`backend/UNITY_INTEGRATION.md`、`README-QuestPro.md` 已更新 |
+| 文档 | `backend/README.md`、`backend/UNITY_INTEGRATION.md`、`README-QuestPro.md` 已更新；新增 `backend/RUNBOOK-L40S.md` |
 
 ## 3. 整体数据流
 
@@ -403,7 +405,8 @@ localPosition = voxelRootPosition + Scale(voxelRootScale, (0, (G-1)/2 · voxelSi
 
 - 所有报告都只有 `PASS:` 行，所有命令的返回码都是 0。
 - `input.txt` 多出 4 行 `Grip and A/X read correctly for …`。
-- `editor.txt` 有 32 行 PASS，最后一行是 `Submit Edits waits for the finished build's own editor`。
+- `editor.txt` 预期 34 行 PASS，最后三行依次是 `Submit Edits waits for the finished build's own editor`、`Aim beside a small voxel: hover preview and Grip magnetic pick`、`Grip strokes undo one at a time; A/X clears the rest`。
+- **注意：这六条命令本次尚未运行。** 2026-10-26 只做了 Unity 编辑器 Play Mode 的手工显示验证（QuickTest），不等于这些验证脚本通过。
 - `play.txt` 有 34 行 PASS，最后一行是 `The reloaded model submits as revision 3: Revision 3: …`；倒数第三行是 `A stale submit reloads the server's latest revision: Server already had revision 2; loaded it. …`。Play Mode 验证的总时限从 150 秒放宽到 240 秒。
 
 最可能出问题的地方：
@@ -465,27 +468,27 @@ Test-NetConnection <Linux IP> -Port 22
 
 ## 8. 未验证项与已知限制
 
-**需要你在使用前完成的事**：
+**已经完成**：
 
-1. **在 Windows 上跑第 5.7 节的六条验证命令。** 这是 Unity 代码第一次在真实 Unity 中运行。
-2. **准备 TRELLIS.2 的运行条件**：
-   1. 用 Hugging Face 账号 Jet 登录，申请 DINOv3 ViT-L 的访问权限（RMBG-2.0 已经不需要了）。
-   2. 在 `trellis2` 环境中执行 `cd backend/third_party/TRELLIS.2 && bash setup.sh --o-voxel`，从仓库内的代码编译 o-voxel，并安装 trimesh，以及 BiRefNet 需要的 timm、kornia、einops。
-   3. 下载 6 个 checkpoint，具体命令见 `backend/README.md`。
-   4. 运行 GPU 测试和 `scripts/measure_trellis.py`，根据实测结果设置 Unity 的 `Max Voxels` 和 `Request Timeout Seconds`。
-3. **在头显中确认**：GLB 与体素是否重合、是否镜像、正面是否朝向用户。
+1. **TRELLIS.2 已在 L40S 上实际跑通**（2026-10-26）：一张椅子照片生成 6,899 个体素和 22.2 MB 的 GLB；阶段一 3.2 秒、阶段二 86.3 秒、显存峰值 14.5 GB。
+2. **后端接口已用真实数据验证**：`/generate` 返回体素和 `model_url`；把编辑后的体素提交到 `/revisions`，得到 revision 1、6,900 个体素和新的 GLB。
+3. **Unity 6000.6 编辑器已实际显示**：Play Mode 下加载 GLB（约 23 MB），并显示 13,676 个体素（Unity 重新编码图片后采样数不同）。
+4. **环境与修复**：编译 nvdiffrast、CuMesh、FlexGEMM、o-voxel；修复 BiRefNet 的 fp16/fp32 和 transformers 5.9 的 DINOv3 层级问题；新增 `VRCRAFTER_BIREFNET` 本地权重路径。
+
+**还没完成**：
+
+1. **在头显中确认**：GLB 与体素是否重合、是否镜像、正面是否朝向用户。
    - 如果正面朝向不对，只能绕 Y 轴旋转映射（四种映射写在计划文档第 3 节里）。
    - 不要只翻转单个轴，否则会得到镜像。
-4. **`trellis2` 环境已有改动**：Task 1 开始时（在你要求不修复环境之前），已经往 `trellis2` 环境中补装了一些缺失的包。只是新增，没有升级或降级任何已有的包，之后 `pip check` 不再报告缺失依赖。如需还原，卸载下面这些包即可：
-   - `nvidia-nvjitlink-cu12==12.4.127`
-   - 原本缺失的依赖：asttokens 3.0.2、charset-normalizer 3.5.2、click 8.5.0、dill 0.4.1、exceptiongroup 1.3.1、filelock 4.1.0、frozenlist 1.8.0、fsspec 2026.9.0、imageio 2.38.0、jinja2 3.1.6、pandas 2.3.3、prompt-toolkit 3.0.53、protobuf 7.36.2、psutil 7.2.2、pure-eval 0.2.4、pygments 2.21.0、python-dateutil 3.0.0、regex 2026.9.29、six 1.17.0、tqdm 4.70.1、traitlets 5.16.1、typing-inspection 0.4.4、tzdata 2026.5、wcwidth 0.9.4
-   - 后端依赖带进来的：httptools 0.9.0、iniconfig 2.3.1、pluggy 1.7.0、pytest 8.4.2、python-dotenv 1.2.4、tomli 2.5.0、uvloop 0.23.0、watchfiles 1.3.0、websockets 16.1.1
+2. **跑完第 5.7 节的六条 Unity 验证命令。** 2026-10-26 只做了编辑器 Play Mode 的手工显示验证（QuickTest），不等于这些脚本通过。
+3. **把本次改动提交到 GitHub。** 小体素磁吸选择/撤销、后端两个兼容修复、Unity 6000.6 的测试脚本目前还在本地，没有推送。
+4. **正式部署。** 临时 Cloudflare 隧道已于 2026-11-01 失效，L40S 服务器当天 SSH 也不可达；需要改成命名 Cloudflare Tunnel 或 SSH 密钥隧道，并补鉴权、上传限制、NAS 和数据清理。
 
 **已知限制**：
 
 - 体素颜色统一为灰色，不能调色。
-- 不支持撤销 / 重做，不能单个取消选中，拖动时不能旋转选区。
-- 生成是同步的：一次请求同时返回体素和 GLB，没有进度显示。
+- 不支持通用撤销 / 重做；Grip 选区笔画可以撤销，但不能单个取消选中，拖动时也不能旋转选区。
+- 生成是同步的：一次请求同时生成并返回体素和 GLB 地址，没有进度显示。
 - 64³ 下的体素数可能超过 12000，具体要看实测。
 - 选中色只在批量渲染的体素上显示，这是默认路径。
 - `data/generations/` 会持续增长，需要定期手动清理。
@@ -513,3 +516,76 @@ d2b114e feat(backend): add on-disk generation and revision store
 29167c9 chore: keep docs/ out of git
 8e86b1d feat(backend): add TRELLIS-to-Unity voxel coordinate mapping
 ```
+
+## 10. 实际跑通记录（2026-10-26）
+
+> 本节记录分支代码第一次在真实 GPU 和真实 Unity 中运行的结果；第 2 节的旧状态以本节为准。
+
+### 10.1 环境
+
+| 项目 | 配置 |
+|---|---|
+| GPU | 1× NVIDIA L40S，44 GiB，128 核，Ubuntu |
+| 驱动 | CUDA 13.2 |
+| Python | 系统 Python 3.12，PyTorch 2.12，transformers 5.9（没有 conda） |
+| CUDA 扩展 | nvdiffrast 0.4.0、CuMesh、FlexGEMM、o-voxel，均按 `sm_89` 编译 |
+| 模型 | TRELLIS.2-4B 的 6 个 1024 检查点、TRELLIS-image-large 的 `ss_dec`、BiRefNet、DINOv3 ViT-L |
+| 磁盘 | 根分区 21 GB 可用，装完约剩 9 GB；NAS 对该账号不可写 |
+
+DINOv3 在 Hugging Face 是 gated，改为从 ModelScope 下载；TRELLIS 和 BiRefNet 走 `hf-mirror.com`。运行方式、镜像和编译命令见 `backend/RUNBOOK-L40S.md`。
+
+### 10.2 生成结果
+
+| 项目 | 结果 |
+|---|---|
+| 输入 | 木椅照片 1024×1535 |
+| 体素数 | 6,899（64³ 网格） |
+| 模型加载 | 79.3 秒 |
+| 阶段一（结构） | 3.2 秒 |
+| 阶段二（形状+纹理+GLB） | 86.3 秒 |
+| GLB | 22.2 MB，482,879 个三角面 |
+| 峰值显存 | 14.5 GB |
+
+接口实测：
+
+- `POST /generate`：56.6 秒返回 200，6,899 体素，GLB 23.6 MB；
+- `POST /revisions`：在体素里加 1 个红色新体素，返回 revision 1、6,900 体素、新 id 6899，新 GLB 23.0 MB；
+- 从 Windows 通过 Cloudflare 临时地址再跑一次：生成约 61 秒，GLB 23 MB 下载约 22 秒。
+
+### 10.3 返回结构
+
+`/generate` 的**同一个响应**里同时包含 `voxels` 和 `model_url`；GLB 的二进制不塞进 JSON，而是用 `model_url` 再发一次 GET 下载。实际返回字段：
+
+```json
+{
+  "status": "done", "response_mode": "both", "source": "trellis2", "seed": 42,
+  "generation_id": "68a4c80fbcbe40a59b112f5f85c73594", "revision": 0,
+  "grid_size": 64, "voxel_count": 6899,
+  "voxels": [{"id": 0, "x": 48, "y": 0, "z": 48, "type": "occupied", "color": "#C8C8C8"}],
+  "model_url": "http://<host>/generations/<id>/revisions/0/model.glb",
+  "model_space": "trellis_unit_cube",
+  "revisions_url": "http://<host>/generations/<id>/revisions",
+  "generation_url": "http://<host>/generations/<id>"
+}
+```
+
+与第 4.3 节的设计一致。
+
+### 10.4 Unity 端
+
+- Unity 6000.6.3f1，平台切到 Windows，编辑器 Play Mode；
+- 通过 HTTPS 调用 `/generate`，日志依次出现 `Response received`、`Loading GLB`、`GLB model loaded`、`Voxels generated`；
+- GLB 成功加载并显示；同一次 Unity 上传的图片重新编码后采样出 **13,676 个体素**（直接 curl 同一张图是 6,899，属于图片预处理差异）；
+- 用真实数据量了对齐：体素中心到 GLB 表面的中位距离 **2.62 mm**，平均 3.02 mm，95% 分位 6.97 mm，96.6% 在 7.5 mm 内；
+- **第 5.7 节的六条验证脚本没有完整跑过；头显未接。**
+
+### 10.5 本次新增/修复
+
+1. 小体素选择：磁吸选体素、悬停预览、Grip 笔画撤销、摇杆按下撤销；
+2. BiRefNet 权重是 fp16、输入是 fp32：`LocalBiRefNet` 加载后 `self.model.float()`；
+3. transformers 5.9 把 DINOv3 的 block 放在 `model.model.layer`：`TrellisGenerator.load()` 里做别名；
+4. 新增 `VRCRAFTER_BIREFNET`，可指向本地 BiRefNet 目录；
+5. Unity 6000.6 兼容：删 `com.unity.modules.vr`、Meta All-in-One 改用 Core、平台切 Windows；
+6. 新增测试脚本 `QuestProQuickTest`（菜单一键生成、无头显调试相机）——只放在测试副本，未合并回主工程。
+
+

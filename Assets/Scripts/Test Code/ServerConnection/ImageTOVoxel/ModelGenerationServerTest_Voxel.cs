@@ -320,6 +320,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
             yield break;
         }
 
+        Debug.Log("[ModelGenerationServerTest] Response received: " + request.downloadHandler.text.Length + " chars");
         yield return ApplyServerResponse(ParseServerResponse(request.downloadHandler.text));
     }
 
@@ -532,6 +533,7 @@ public class ModelGenerationServerTest_Voxel : MonoBehaviour
 
         GltfImport gltf = new GltfImport();
 
+        Debug.Log("[ModelGenerationServerTest] Loading GLB: " + modelUrl);
         var loadTask = gltf.Load(modelUrl);
         while (!loadTask.IsCompleted)
         {

@@ -83,11 +83,13 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
 
     private void Update()
     {
-        if (generateButton == null) return;
+        // Play Mode teardown can destroy the generator before this component; do not spam NREs on exit.
+        if (generator == null || generateButton == null || buttonLabel == null || submitButton == null ||
+            statusText == null || controllerStatus == null || menu == null) return;
         generateButton.interactable = !generator.IsRunning;
         buttonLabel.text = generator.IsRunning ? "Generating..." : "Get 3D Model";
         submitButton.interactable = generator.CanSubmitEdits;
-        for (int i = 0; i < modeButtons.Length; i++) modeButtons[i].IsActive = i == (int)QuestVoxelEditor.Mode;
+        for (int i = 0; i < modeButtons.Length; i++) if (modeButtons[i] != null) modeButtons[i].IsActive = i == (int)QuestVoxelEditor.Mode;
         statusText.text = generator.StatusMessage;
         if (Time.unscaledTime >= nextControllerStatusUpdate)
         {
@@ -158,7 +160,7 @@ public sealed class QuestProVoxelExperience : MonoBehaviour
         background.GetComponent<Image>().color = new Color(0.035f, 0.055f, 0.085f, 0.97f);
         background.GetComponent<Image>().raycastTarget = false;
         CreateText(canvasObject.transform, "Title", "3D MODEL WORKSPACE", new Vector2(0f, 195f), new Vector2(500f, 55f), 30);
-        CreateText(canvasObject.transform, "Instructions", "Grip: select   A/X: clear   Trigger: use mode\nMove/Fill/Erase drag the selection. Add places voxels.",
+        CreateText(canvasObject.transform, "Instructions", "Grip: select   A/X: clear   Stick click: undo\nMove/Fill/Erase drag the selection. Add places voxels.",
             new Vector2(0f, 125f), new Vector2(520f, 70f), 20);
 
         for (int i = 0; i < modeButtons.Length; i++)

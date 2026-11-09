@@ -22,6 +22,7 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
     private bool armed;
     private bool gripHeld;
     private bool primaryPressed;
+    private bool undoPressed;
     private bool recenterPressed;
     private InputDevice inputDevice;
     private bool inputFocus = true;
@@ -88,19 +89,35 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         }
         recenterPressed = tracked && state.recenter;
         ProcessSelectionInput(tracked, state.grip, state.primary);
+        ProcessUndo(tracked, state.undo);
         ProcessInput(tracked, TriggerValue);
     }
 
     // Grip uses the Trigger thresholds and adds ray-hit voxels to the shared selection; A/X clears it once per press.
+    // A Grip press is one undoable stroke, so a sweep that went wrong can be rolled back without dropping earlier picks.
     private void ProcessSelectionInput(bool tracked, float grip, bool primary)
     {
         var active = QuestVoxelEditor.Active;
+        bool wasGripHeld = gripHeld;
         gripHeld = tracked && grip >= (gripHeld ? 0.45f : 0.65f);
+        if (active != null && gripHeld != wasGripHeld)
+        {
+            if (gripHeld) active.BeginSelectionStroke();
+            else active.EndSelectionStroke();
+        }
         if (tracked && primary && !primaryPressed && active != null) active.ClearSelection();
         primaryPressed = tracked && primary;
-        if (gripHeld && active != null && Physics.Raycast(transform.position, transform.forward, out RaycastHit hit,
-            rayDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
-            active.Select(hit.collider.GetComponentInParent<GeneratedVoxel>());
+        if (gripHeld && active != null)
+        {
+            GeneratedVoxel voxel = active.FindRayVoxel(transform.position, transform.forward, rayDistance);
+            if (voxel != null) active.Select(voxel);
+        }
+    }
+
+    private void ProcessUndo(bool tracked, bool undo)
+    {
+        if (tracked && undo && !undoPressed) QuestVoxelEditor.Active?.UndoSelection();
+        undoPressed = tracked && undo;
     }
 
     private void ProcessInput(bool tracked, float trigger)
@@ -121,6 +138,7 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         QuestVoxelDraggable candidate = null;
         QuestVoxelDraggable rayVoxel = null;
         QuestRayButton button = null;
+        GeneratedVoxel snapped = null;
 
         if (held == null && !(editing && editMode != QuestVoxelEditMode.Add))
         {
@@ -142,6 +160,9 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
                 if (near != null) candidate = near;
             }
             if (candidate != null && candidate.Owner != null) candidate = null;
+            // Hover previews the magnetic pick so the selected voxel is known before Grip is pressed.
+            if (button == null && candidate == null && active != null)
+                snapped = active.FindRayVoxel(transform.position, transform.forward, rayDistance);
         }
 
         SetHoveredButton(button);
@@ -175,7 +196,9 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
             if (editTarget != null) end = editTarget.transform.position;
         }
         else if (candidate != null) end = candidate.transform.position;
-        SetHoveredVoxel(held != null ? held : editTarget != null ? editTarget : rayVoxel);
+        if (snapped != null) end = snapped.transform.position;
+        SetHoveredVoxel(held != null ? held : editTarget != null ? editTarget : rayVoxel != null ? rayVoxel :
+            snapped != null ? snapped.GetComponent<QuestVoxelDraggable>() : null);
         if (active != null)
         {
             if (QuestVoxelEditor.Mode == QuestVoxelEditMode.Add && button == null) active.UpdatePreview(transform, rayDistance);
@@ -183,7 +206,7 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         }
 
         Color color = held != null ? ModeColors[0] : editing ? ModeColors[(int)editMode] : gripHeld ? QuestVoxelEditor.SelectedColor :
-            candidate != null || button != null ? Color.cyan : new Color(0.4f, 0.65f, 0.8f, 0.65f);
+            candidate != null || button != null || snapped != null ? Color.cyan : new Color(0.4f, 0.65f, 0.8f, 0.65f);
         line.enabled = true;
         line.startColor = line.endColor = color;
         line.SetPosition(0, transform.position);
@@ -263,8 +286,13 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         Release();
         SetHoveredButton(null);
         SetHoveredVoxel(null);
-        if (QuestVoxelEditor.Active != null) QuestVoxelEditor.Active.HidePreview(transform);
-        pressed = armed = gripHeld = false;
+        if (QuestVoxelEditor.Active != null)
+        {
+            // A lost pose ends the Grip stroke instead of leaving it open.
+            QuestVoxelEditor.Active.EndSelectionStroke();
+            QuestVoxelEditor.Active.HidePreview(transform);
+        }
+        pressed = armed = gripHeld = undoPressed = false;
         if (line != null) line.enabled = false;
     }
 
@@ -277,6 +305,7 @@ public sealed class QuestProTriggerInteractor : MonoBehaviour
         TriggerValue = 0f;
         JoystickValue = Vector2.zero;
         recenterPressed = false;
+        undoPressed = false;
         inputSource = null;
         InputStatus = "Disabled";
     }

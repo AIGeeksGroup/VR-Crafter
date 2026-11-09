@@ -10,8 +10,9 @@ This FastAPI service receives an image from the Unity client and returns a
   Windows.
 - `trellis2`: TRELLIS.2 on a Linux GPU machine. Stage 1 (sparse structure)
   gives the 64³ voxels, and the 1024 shape and texture stages give a GLB for
-  the same voxels. This path has never been run yet (see
-  [Not done yet](#not-done-yet-trellis2-gpu-path)).
+  the same voxels. First run on an L40S: a chair photo gave 6,899 voxels,
+  3.2 s for stage 1, 86.3 s for the mesh, a 22 MB GLB and 14.5 GB peak VRAM
+  (see [RUNBOOK-L40S.md](RUNBOOK-L40S.md)).
 
 Every generation gets a `generation_id` and numbered revisions. Revision 0 is
 the generated result; each edit submitted from VR creates the next revision,
@@ -71,11 +72,11 @@ or o-voxel stops the server immediately. Check `/status` afterwards:
 Only six TRELLIS.2 models are loaded: the sparse-structure flow, the 1024
 shape and texture flows, and the shape and texture decoders.
 
-## Not done yet (TRELLIS.2 GPU path)
+## TRELLIS.2 GPU path (first run verified)
 
-The code is written and its CPU-side tests pass, but nothing of the following
-has been run, and no timings, voxel counts, GLB sizes or VRAM figures have been
-measured:
+The `trellis2` path was first run on an L40S on 2026-10-26; the exact setup,
+the two compatibility fixes it needed and the measured numbers are in
+[RUNBOOK-L40S.md](RUNBOOK-L40S.md). The steps below are the same recipe:
 
 1. Install o-voxel, trimesh and BiRefNet's dependencies (`timm`, `kornia`, `einops`)
    in the env:
