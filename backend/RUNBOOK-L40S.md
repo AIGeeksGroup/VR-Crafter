@@ -45,8 +45,8 @@ Downloaded to `~/vr-models` (not in the repo):
 `pipeline.json` in the local model directory was edited to use local paths:
 
 - `sparse_structure_decoder` → `ckpts/ss_dec_conv3d_16l8_fp16`
-- `image_cond_model.args.model_name` → `/home/zeyuzhang/vr-models/dinov3-vitl16`
-- `rembg_model.args.model_name` → `/home/zeyuzhang/vr-models/BiRefNet` (ignored by `LocalBiRefNet`)
+- `image_cond_model.args.model_name` → `~/vr-models/dinov3-vitl16`
+- `rembg_model.args.model_name` → `~/vr-models/BiRefNet` (ignored by `LocalBiRefNet`)
 
 ## Fixes required on this machine
 
